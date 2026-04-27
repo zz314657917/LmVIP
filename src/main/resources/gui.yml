@@ -48,6 +48,7 @@ items:
 
   # VIP 等级展示物品。
   # %level_name% 会替换为 levels.yml 中配置的等级名。
+  # 玩家点击等级物品时，如果该等级一次性 VIP 礼包可领取，会直接领取对应等级礼包。
   level:
     material: "PAPER"
     name: "&e%level_name%"

@@ -158,6 +158,10 @@ object VipConfigManager {
                 monthly = RewardRule(
                     threshold = config.getLong("$path.monthly-reward.threshold", 0L),
                     commands = config.getStringList("$path.monthly-reward.commands")
+                ),
+                once = RewardRule(
+                    threshold = 0L,
+                    commands = config.getStringList("$path.once-reward.commands")
                 )
             )
         }.sortedBy { it.level }

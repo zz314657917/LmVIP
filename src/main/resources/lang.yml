@@ -13,9 +13,12 @@ messages:
   reward:
     no-active-season: "当前没有启用周目"
     no-vip-level: "当前没有 VIP 等级"
+    once-level-not-found: "VIP 等级不存在: %level%"
+    once-not-reached: "未达到 %level_name%"
     already-claimed: "奖励已经领取"
     dispatch-failed-rollback: "奖励发放失败，领取记录已回滚"
     claim-success: "领取成功"
+    once-claim-success: "已领取 %level_name% 一次性礼包"
     status:
       claimed: "已领取"
       available: "可领取"
@@ -26,7 +29,7 @@ messages:
 
   command:
     vip:
-      claim-usage: "用法: /vip claim <daily|weekly|monthly>"
+      claim-usage: "用法: /vip claim <daily|weekly|monthly> 或 /vip claim once <level>"
       # %error% 为异常信息。
       claim-failed: "领取失败: %error%"
       info-read-failed: "读取失败: %error%"
@@ -111,3 +114,6 @@ messages:
       group: "&7LuckPerms组: &f%group%"
       owned: "&a已拥有"
       locked: "&c未拥有"
+      once-status: "&7一次性礼包: &f%status%"
+      once-click: "&a点击领取一次性礼包"
+      once-unavailable: "&8一次性礼包暂不可领取"

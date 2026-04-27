@@ -47,21 +47,41 @@ object VipCommand {
 
     @CommandBody
     val claim = subCommand {
-        dynamic(comment = "daily|weekly|monthly") {
-            execute<ProxyCommandSender> { sender, context, _ ->
-                val player = sender.cast<Player>()
-                val type = ClaimType.parse(context.args().getOrNull(1) ?: "") ?: return@execute sender.sendMessage(LmVipServices.message("command.vip.claim-usage"))
-                val service = LmVipServices.vipService ?: return@execute sender.sendMessage(LmVipServices.message("common.not-ready"))
-                BukkitTasks.async({
-                    val snapshot = service.snapshot(player, force = true)
-                    service.rewards.claim(player, snapshot, type)
-                }) { result ->
-                    val operation = result.getOrElse {
-                        return@async sender.sendMessage(LmVipServices.message("command.vip.claim-failed", "error" to it.message))
-                    }
-                    sender.sendMessage((LmVipServices.config?.messagePrefix ?: "") + operation.message)
-                }
+        dynamic(comment = "daily|weekly|monthly|once") {
+            dynamic(comment = "level", optional = true) {
+                execute<ProxyCommandSender> { sender, context, _ -> handleClaim(sender, context.args().toList()) }
             }
+            execute<ProxyCommandSender> { sender, context, _ -> handleClaim(sender, context.args().toList()) }
+        }
+    }
+
+    private fun handleClaim(sender: ProxyCommandSender, args: List<String>) {
+        val player = sender.cast<Player>()
+        val action = args.getOrNull(1)?.lowercase() ?: return sender.sendMessage(LmVipServices.message("command.vip.claim-usage"))
+        val service = LmVipServices.vipService ?: return sender.sendMessage(LmVipServices.message("common.not-ready"))
+        if (action == ClaimType.ONCE.dbKey) {
+            val level = args.getOrNull(2)?.toIntOrNull() ?: return sender.sendMessage(LmVipServices.message("command.vip.claim-usage"))
+            BukkitTasks.async({
+                val snapshot = service.snapshot(player, force = true)
+                service.rewards.claimOnce(player, snapshot, level)
+            }) { result ->
+                val operation = result.getOrElse {
+                    return@async sender.sendMessage(LmVipServices.message("command.vip.claim-failed", "error" to it.message))
+                }
+                sender.sendMessage((LmVipServices.config?.messagePrefix ?: "") + operation.message)
+            }
+            return
+        }
+        val type = ClaimType.parse(action)?.takeIf { it != ClaimType.ONCE }
+            ?: return sender.sendMessage(LmVipServices.message("command.vip.claim-usage"))
+        BukkitTasks.async({
+            val snapshot = service.snapshot(player, force = true)
+            service.rewards.claim(player, snapshot, type)
+        }) { result ->
+            val operation = result.getOrElse {
+                return@async sender.sendMessage(LmVipServices.message("command.vip.claim-failed", "error" to it.message))
+            }
+            sender.sendMessage((LmVipServices.config?.messagePrefix ?: "") + operation.message)
         }
     }
 }

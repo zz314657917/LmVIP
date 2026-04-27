@@ -17,6 +17,7 @@ data class VipLevel(
     val daily: RewardRule,
     val weekly: RewardRule,
     val monthly: RewardRule,
+    val once: RewardRule,
 )
 
 data class SeasonRecord(
@@ -60,7 +61,8 @@ enum class PointDimension {
 enum class ClaimType {
     DAILY,
     WEEKLY,
-    MONTHLY;
+    MONTHLY,
+    ONCE;
 
     val dbKey: String
         get() = name.lowercase()

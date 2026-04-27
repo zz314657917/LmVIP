@@ -37,5 +37,6 @@ class VipCalculatorTest {
         daily = RewardRule(0, emptyList()),
         weekly = RewardRule(0, emptyList()),
         monthly = RewardRule(0, emptyList()),
+        once = RewardRule(0, emptyList()),
     )
 }

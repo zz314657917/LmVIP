@@ -4,6 +4,7 @@ import cc.mcstory.lmvip.LmVipServices
 import cc.mcstory.lmvip.model.ClaimStatus
 import cc.mcstory.lmvip.model.ClaimType
 import cc.mcstory.lmvip.model.VipSnapshot
+import cc.mcstory.lmvip.service.RewardService
 import org.bukkit.Bukkit
 import org.bukkit.OfflinePlayer
 import taboolib.platform.compat.PlaceholderExpansion
@@ -36,7 +37,14 @@ object LmVipPlaceholderExpansion : PlaceholderExpansion {
 
     private fun valueFor(entry: CachedPlaceholder, args: String): String {
         val snapshot = entry.snapshot
-        return when (args.lowercase()) {
+        val normalized = args.lowercase()
+        if (normalized.startsWith("once_claimed_")) {
+            return onceStatusValue(entry, normalized.removePrefix("once_claimed_")) { it.claimed }
+        }
+        if (normalized.startsWith("once_reward_available_")) {
+            return onceStatusValue(entry, normalized.removePrefix("once_reward_available_")) { it.available }
+        }
+        return when (normalized) {
             "level" -> snapshot.vipLevel.toString()
             "level_name" -> snapshot.vipLevelName
             "total_points" -> snapshot.totalPoints.toString()
@@ -56,6 +64,11 @@ object LmVipPlaceholderExpansion : PlaceholderExpansion {
         }
     }
 
+    private fun onceStatusValue(entry: CachedPlaceholder, levelText: String, extractor: (ClaimStatus) -> Boolean): String {
+        val level = levelText.toIntOrNull() ?: return ""
+        return extractor(entry.onceStatuses[level] ?: return "false").toString()
+    }
+
     private fun refreshAsync(playerId: UUID, playerName: String) {
         if (!refreshing.add(playerId)) return
         Bukkit.getScheduler().runTaskAsynchronously(BukkitPlugin.getInstance(), Runnable {
@@ -71,8 +84,10 @@ object LmVipPlaceholderExpansion : PlaceholderExpansion {
         val service = LmVipServices.vipService ?: return null
         return runCatching {
             val snapshot = service.snapshot(playerId, playerName)
-            val statuses = ClaimType.values().associateWith { service.rewards.status(snapshot, it) }
-            val entry = CachedPlaceholder(snapshot, statuses, System.currentTimeMillis())
+            val statuses = RewardService.PERIODIC_TYPES.associateWith { service.rewards.status(snapshot, it) }
+            val onceStatuses = LmVipServices.config?.levels.orEmpty()
+                .associate { it.level to service.rewards.onceStatus(snapshot, it.level) }
+            val entry = CachedPlaceholder(snapshot, statuses, onceStatuses, System.currentTimeMillis())
             cache[playerId] = entry
             entry
         }.getOrElse {
@@ -84,6 +99,7 @@ object LmVipPlaceholderExpansion : PlaceholderExpansion {
     private data class CachedPlaceholder(
         val snapshot: VipSnapshot,
         val statuses: Map<ClaimType, ClaimStatus>,
+        val onceStatuses: Map<Int, ClaimStatus>,
         val createdAt: Long,
     ) {
         fun isExpired(): Boolean {

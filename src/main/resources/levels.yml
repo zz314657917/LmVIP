@@ -37,6 +37,11 @@ levels:
       commands:
         - "say %player% 领取了 VIP1 月累充奖励"
 
+    # 一次性礼包：玩家首次达到此 VIP 等级后永久只可领取一次，换周目不会重置。
+    once-reward:
+      commands:
+        - "say %player% 领取了 VIP1 一次性礼包"
+
   "2":
     name: "&bVIP2"
     total-points: 500
@@ -56,6 +61,9 @@ levels:
       threshold: 300
       commands:
         - "say %player% 领取了 VIP2 月累充奖励"
+    once-reward:
+      commands:
+        - "say %player% 领取了 VIP2 一次性礼包"
 
   "3":
     name: "&dVIP3"
@@ -76,3 +84,6 @@ levels:
       threshold: 500
       commands:
         - "say %player% 领取了 VIP3 月累充奖励"
+    once-reward:
+      commands:
+        - "say %player% 领取了 VIP3 一次性礼包"

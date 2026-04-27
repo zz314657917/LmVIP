@@ -15,6 +15,10 @@ LmVIP 是一个基于 TabooLib 6 的周目 VIP 系统。
 3. 将 `build/libs/LmVIP.jar` 放入服务端 `plugins`。
 4. 启动后检查生成的 `config.yml`、`levels.yml`、`gui.yml`。
 
+Paper/Spigot 1.12.2 通常仍跑在 Java 8。LuckPerms 请使用兼容 Java 8 的 Bukkit 版本，例如 5.4.x；较新的 5.5.x 版本可能要求更高 Java 版本。
+
+插件启动和 `/vipadmin reload` 会检查 `config.yml`、`levels.yml`、`gui.yml`、`lang.yml`。缺失文件会自动生成，已有文件缺少默认 key 时会先备份为 `.bak-时间戳`，再只补缺失项，不覆盖已有值。
+
 ## 周目流程
 
 当前周目由数据库 active season 决定，不按日期推断。
@@ -49,6 +53,7 @@ LmVIP 是一个基于 TabooLib 6 的周目 VIP 系统。
 /vip claim daily
 /vip claim weekly
 /vip claim monthly
+/vip claim once <level>
 ```
 
 ## 管理命令
@@ -92,16 +97,28 @@ LmVIP 是一个基于 TabooLib 6 的周目 VIP 系统。
 %lmvip_daily_claimed%
 %lmvip_weekly_claimed%
 %lmvip_monthly_claimed%
+%lmvip_once_claimed_<level>%
+%lmvip_once_reward_available_<level>%
 ```
 
 ## 配置文件
 
 - `config.yml`：LmCore 数据库 profile、时区、周起始日、缓存和消息前缀。
-- `levels.yml`：VIP 等级门槛、LuckPerms group、福利说明、日/周/月奖励门槛和奖励命令。
+- `levels.yml`：VIP 等级门槛、LuckPerms group、福利说明、日/周/月/一次性奖励门槛和奖励命令。
 - `gui.yml`：GUI 标题、行数、槽位、材质和按钮名。
+
+一次性 VIP 礼包按“每个玩家、每个 VIP 等级永久一次”记录，不随周目重置。配置示例：
+
+```yaml
+levels:
+  "1":
+    once-reward:
+      commands:
+        - "say %player% 领取了 VIP1 一次性礼包"
+```
 
 ## 构建验证
 
 ```powershell
-F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP build
+F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace
 ```

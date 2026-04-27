@@ -7,6 +7,7 @@ import cc.mcstory.lmvip.model.ClaimStatus
 import cc.mcstory.lmvip.model.ClaimType
 import cc.mcstory.lmvip.model.VipLevel
 import cc.mcstory.lmvip.model.VipSnapshot
+import cc.mcstory.lmvip.service.RewardService
 import cc.mcstory.lmvip.util.BukkitTasks
 import org.bukkit.Material
 import org.bukkit.entity.Player
@@ -23,8 +24,10 @@ object VipGui {
         }
         BukkitTasks.async({
             val snapshot = service.snapshot(player, force = true)
-            val statuses = ClaimType.values().associateWith { service.rewards.status(snapshot, it) }
-            GuiState(snapshot, statuses)
+            val statuses = RewardService.PERIODIC_TYPES.associateWith { service.rewards.status(snapshot, it) }
+            val onceStatuses = LmVipServices.config?.levels.orEmpty()
+                .associate { it.level to service.rewards.onceStatus(snapshot, it.level) }
+            GuiState(snapshot, statuses, onceStatuses)
         }) { result ->
             val state = result.getOrElse {
                 player.sendMessage(LmVipServices.message("gui.read-failed", "error" to it.message))
@@ -62,7 +65,14 @@ object VipGui {
 
                 val slots = gui.slots.levels
                 config.levels.take(slots.size).forEachIndexed { index, level ->
-                    set(slots[index], levelItem(level, state.snapshot.vipLevel >= level.level, gui.items["level"])) { isCancelled = true }
+                    val onceStatus = state.onceStatuses[level.level] ?: ClaimStatus(false, false, config.language.raw("reward.once-level-not-found", "level" to level.level))
+                    set(slots[index], levelItem(level, state.snapshot.vipLevel >= level.level, onceStatus, gui.items["level"])) {
+                        isCancelled = true
+                        if (onceStatus.available && !onceStatus.claimed) {
+                            player.closeInventory()
+                            claimOnce(player, level.level)
+                        }
+                    }
                 }
             }
         }
@@ -82,11 +92,26 @@ object VipGui {
         }
     }
 
+    private fun claimOnce(player: Player, level: Int) {
+        val service = LmVipServices.vipService ?: return
+        BukkitTasks.async({
+            val snapshot = service.snapshot(player, force = true)
+            service.rewards.claimOnce(player, snapshot, level)
+        }) { result ->
+            val operation = result.getOrElse {
+                player.sendMessage(LmVipServices.message("command.vip.claim-failed", "error" to it.message))
+                return@async
+            }
+            player.sendMessage((LmVipServices.config?.messagePrefix ?: "") + operation.message)
+        }
+    }
+
     private fun rewardItem(type: ClaimType, status: ClaimStatus, itemConfig: GuiItemConfig?): ItemStack {
         val fallbackName = when (type) {
             ClaimType.DAILY -> "&a日累充奖励"
             ClaimType.WEEKLY -> "&bVIP 周礼包"
             ClaimType.MONTHLY -> "&d月累充奖励"
+            ClaimType.ONCE -> "&e一次性 VIP 礼包"
         }
         return item(itemConfig, Material.CHEST, listOf(
             LmVipServices.rawMessage("gui.reward.status", "status" to status.reason),
@@ -98,7 +123,7 @@ object VipGui {
         ), fallbackName)
     }
 
-    private fun levelItem(level: VipLevel, owned: Boolean, itemConfig: GuiItemConfig?): ItemStack {
+    private fun levelItem(level: VipLevel, owned: Boolean, onceStatus: ClaimStatus, itemConfig: GuiItemConfig?): ItemStack {
         val lore = mutableListOf<String>()
         lore += LmVipServices.rawMessage("gui.level.total", "total" to level.totalPoints)
         lore += LmVipServices.rawMessage("gui.level.group", "group" to level.group)
@@ -106,6 +131,12 @@ object VipGui {
         lore += level.benefits
         lore += ""
         lore += if (owned) LmVipServices.rawMessage("gui.level.owned") else LmVipServices.rawMessage("gui.level.locked")
+        lore += LmVipServices.rawMessage("gui.level.once-status", "status" to onceStatus.reason)
+        lore += if (onceStatus.available && !onceStatus.claimed) {
+            LmVipServices.rawMessage("gui.level.once-click")
+        } else {
+            LmVipServices.rawMessage("gui.level.once-unavailable")
+        }
         val name = itemConfig?.name?.replace("%level_name%", level.name) ?: level.name
         return item(material(itemConfig?.material, Material.PAPER), name, lore)
     }
@@ -132,5 +163,6 @@ object VipGui {
     private data class GuiState(
         val snapshot: VipSnapshot,
         val statuses: Map<ClaimType, ClaimStatus>,
+        val onceStatuses: Map<Int, ClaimStatus>,
     )
 }
