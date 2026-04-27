@@ -2,6 +2,7 @@ package cc.mcstory.lmvip.command
 
 import cc.mcstory.lmvip.LmVipServices
 import cc.mcstory.lmvip.config.VipConfigManager
+import cc.mcstory.lmvip.integration.LmVipPlaceholderExpansion
 import cc.mcstory.lmvip.model.PointDimension
 import cc.mcstory.lmvip.model.RollbackTransactionResult
 import cc.mcstory.lmvip.model.TransactionWriteResult
@@ -97,6 +98,7 @@ object VipAdminCommand {
             val loaded = VipConfigManager.load(plugin)
             LmVipServices.updateConfig(loaded)
             current?.updateConfig(loaded)
+            LmVipPlaceholderExpansion.clear()
             sender.sendMessage(msg("admin.reload-success"))
         }
     }

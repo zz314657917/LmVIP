@@ -2,6 +2,7 @@ package cc.mcstory.lmvip.service
 
 import cc.mcstory.lmvip.config.LanguageRuntimeConfig
 import cc.mcstory.lmvip.config.VipRuntimeConfig
+import cc.mcstory.lmvip.integration.LmVipPlaceholderExpansion
 import cc.mcstory.lmvip.model.ClaimStatus
 import cc.mcstory.lmvip.model.ClaimType
 import cc.mcstory.lmvip.model.OperationResult
@@ -100,6 +101,7 @@ class RewardService(
             repository.deleteClaim(player.uniqueId, seasonId, type.dbKey, level.level, periodKey)
             return OperationResult(false, raw("reward.dispatch-failed-rollback"))
         }
+        LmVipPlaceholderExpansion.refresh(player.uniqueId, player.name)
         return OperationResult(true, raw("reward.claim-success"))
     }
 
@@ -125,6 +127,7 @@ class RewardService(
             repository.deleteClaim(player.uniqueId, ONCE_SEASON_ID, ClaimType.ONCE.dbKey, level.level, ONCE_PERIOD_KEY)
             return OperationResult(false, raw("reward.dispatch-failed-rollback"))
         }
+        LmVipPlaceholderExpansion.refresh(player.uniqueId, player.name)
         return OperationResult(true, raw("reward.once-claim-success", "level" to level.level, "level_name" to level.plainName))
     }
 

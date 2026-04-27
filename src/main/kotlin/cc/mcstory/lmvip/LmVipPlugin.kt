@@ -1,6 +1,7 @@
 package cc.mcstory.lmvip
 
 import cc.mcstory.lmvip.config.VipConfigManager
+import cc.mcstory.lmvip.integration.LmVipPlaceholderExpansion
 import cc.mcstory.lmvip.integration.LuckPermsGroupSync
 import cc.mcstory.lmvip.storage.JdbcVipRepository
 import cc.mcstory.lmvip.service.RewardService
@@ -32,6 +33,7 @@ object LmVipPlugin : Plugin() {
     }
 
     override fun onDisable() {
+        LmVipPlaceholderExpansion.clear()
         LmVipServices.disable()
         info("[LmVIP] disabled.")
     }

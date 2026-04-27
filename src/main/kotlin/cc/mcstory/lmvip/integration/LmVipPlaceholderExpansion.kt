@@ -18,6 +18,32 @@ object LmVipPlaceholderExpansion : PlaceholderExpansion {
     private val cache = ConcurrentHashMap<UUID, CachedPlaceholder>()
     private val refreshing = Collections.newSetFromMap(ConcurrentHashMap<UUID, Boolean>())
 
+    fun refresh(player: OfflinePlayer) {
+        refresh(player.uniqueId, player.name ?: player.uniqueId.toString())
+    }
+
+    fun refresh(playerId: UUID, playerName: String) {
+        if (!LmVipServices.ready) {
+            invalidate(playerId)
+            return
+        }
+        if (Bukkit.isPrimaryThread()) {
+            refreshAsync(playerId, playerName)
+        } else {
+            loadEntry(playerId, playerName) ?: invalidate(playerId)
+        }
+    }
+
+    fun invalidate(playerId: UUID) {
+        cache.remove(playerId)
+        refreshing.remove(playerId)
+    }
+
+    fun clear() {
+        cache.clear()
+        refreshing.clear()
+    }
+
     override fun onPlaceholderRequest(player: OfflinePlayer?, args: String): String {
         if (player == null || !LmVipServices.ready) return ""
         val service = LmVipServices.vipService ?: return ""
@@ -83,7 +109,7 @@ object LmVipPlaceholderExpansion : PlaceholderExpansion {
     private fun loadEntry(playerId: UUID, playerName: String): CachedPlaceholder? {
         val service = LmVipServices.vipService ?: return null
         return runCatching {
-            val snapshot = service.snapshot(playerId, playerName)
+            val snapshot = service.snapshot(playerId, playerName, force = true)
             val statuses = RewardService.PERIODIC_TYPES.associateWith { service.rewards.status(snapshot, it) }
             val onceStatuses = LmVipServices.config?.levels.orEmpty()
                 .associate { it.level to service.rewards.onceStatus(snapshot, it.level) }
