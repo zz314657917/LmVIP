@@ -1,0 +1,58 @@
+levels:
+  "1":
+    name: "&aVIP1"
+    total-points: 100
+    group: "vip1"
+    benefits:
+      - "&7永久身份: &aVIP1"
+      - "&7基础礼包与周目福利"
+    daily-reward:
+      threshold: 10
+      commands:
+        - "say %player% 领取了 VIP1 日累充奖励"
+    weekly-reward:
+      monthly-threshold: 100
+      commands:
+        - "say %player% 领取了 VIP1 周礼包"
+    monthly-reward:
+      threshold: 100
+      commands:
+        - "say %player% 领取了 VIP1 月累充奖励"
+  "2":
+    name: "&bVIP2"
+    total-points: 500
+    group: "vip2"
+    benefits:
+      - "&7永久身份: &bVIP2"
+      - "&7更高等级的周目福利"
+    daily-reward:
+      threshold: 30
+      commands:
+        - "say %player% 领取了 VIP2 日累充奖励"
+    weekly-reward:
+      monthly-threshold: 300
+      commands:
+        - "say %player% 领取了 VIP2 周礼包"
+    monthly-reward:
+      threshold: 300
+      commands:
+        - "say %player% 领取了 VIP2 月累充奖励"
+  "3":
+    name: "&dVIP3"
+    total-points: 1000
+    group: "vip3"
+    benefits:
+      - "&7永久身份: &dVIP3"
+      - "&7高阶 VIP 福利"
+    daily-reward:
+      threshold: 50
+      commands:
+        - "say %player% 领取了 VIP3 日累充奖励"
+    weekly-reward:
+      monthly-threshold: 500
+      commands:
+        - "say %player% 领取了 VIP3 周礼包"
+    monthly-reward:
+      threshold: 500
+      commands:
+        - "say %player% 领取了 VIP3 月累充奖励"

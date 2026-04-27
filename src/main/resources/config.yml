@@ -1,0 +1,10 @@
+database-profile: "LmVIP"
+timezone: "Asia/Shanghai"
+week-start: "MONDAY"
+message-prefix: "&6[LmVIP]&r "
+
+sync:
+  retry-seconds: 30
+
+cache:
+  snapshot-ttl-seconds: 30

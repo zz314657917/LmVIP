@@ -1,0 +1,26 @@
+title: "&6VIP 权益"
+rows: 6
+
+slots:
+  status: 4
+  daily: 20
+  weekly: 22
+  monthly: 24
+  levels: [28, 29, 30, 31, 32, 33, 34]
+
+items:
+  status:
+    material: "BOOK"
+    name: "&e我的 VIP"
+  daily:
+    material: "CHEST"
+    name: "&a领取日累充奖励"
+  weekly:
+    material: "ENDER_CHEST"
+    name: "&b领取 VIP 周礼包"
+  monthly:
+    material: "DIAMOND"
+    name: "&d领取月累充奖励"
+  level:
+    material: "PAPER"
+    name: "&e%level_name%"
