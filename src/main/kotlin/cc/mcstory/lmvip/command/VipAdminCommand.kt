@@ -95,6 +95,7 @@ object VipAdminCommand {
         execute<ProxyCommandSender> { sender, _, _ ->
             val plugin = taboolib.platform.BukkitPlugin.getInstance()
             val current = LmVipServices.vipService
+            VipConfigManager.ensureDefaults(plugin)
             val loaded = VipConfigManager.load(plugin)
             LmVipServices.updateConfig(loaded)
             current?.updateConfig(loaded)
