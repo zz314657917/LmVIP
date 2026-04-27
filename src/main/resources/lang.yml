@@ -1,0 +1,113 @@
+# LmVIP 语言文件
+# 支持 & 颜色符号。
+# 可用占位符写在每条消息附近，格式为 %name%。
+
+# 消息前缀。
+prefix: "&6[LmVIP]&r "
+
+messages:
+  common:
+    not-ready: "LmVIP 未就绪"
+    not-set: "未设置"
+
+  reward:
+    no-active-season: "当前没有启用周目"
+    no-vip-level: "当前没有 VIP 等级"
+    already-claimed: "奖励已经领取"
+    dispatch-failed-rollback: "奖励发放失败，领取记录已回滚"
+    claim-success: "领取成功"
+    status:
+      claimed: "已领取"
+      available: "可领取"
+      # %current% 当前今日累充，%required% 所需今日累充。
+      daily-not-enough: "今日累充不足: %current%/%required%"
+      # %current% 当前本月累充，%required% 所需本月累充。
+      monthly-not-enough: "本月累充不足: %current%/%required%"
+
+  command:
+    vip:
+      claim-usage: "用法: /vip claim <daily|weekly|monthly>"
+      # %error% 为异常信息。
+      claim-failed: "领取失败: %error%"
+      info-read-failed: "读取失败: %error%"
+      info:
+        # %level_name% 当前 VIP 等级名。
+        header: "&fVIP等级: &e%level_name%"
+        # %total% 总累充，%season% 周目累充，%monthly% 月累充，%daily% 日累充。
+        points: "&7总累充: &f%total% &7周目: &f%season% &7本月: &f%monthly% &7今日: &f%daily%"
+        # %season% 当前周目名。
+        season: "&7当前周目: &f%season%"
+
+  admin:
+    help:
+      - "&6/vipadmin season <create|activate|start|current|list|info>"
+      - "&6/vipadmin points add <player> recharge <amount> <source> <orderId>"
+      - "&6/vipadmin points season <add|take|set|reset> <player> <seasonId> [amount]"
+      - "&6/vipadmin info <player> [seasonId]"
+
+    reload-success: "配置已重载"
+    operation-failed: "操作失败: %error%"
+
+    sync-success: "已同步 %player%: VIP %level%"
+    sync-failed: "同步失败: %error%"
+
+    info-usage: "用法: /vipadmin info <player> [seasonId]"
+    info-failed: "查询失败: %error%"
+    info:
+      header: "&6%player% VIP信息"
+      season: "&7周目: &f%id% %name%"
+      vip: "&7VIP: &f%level_name% &7总累充: &f%total%"
+      points: "&7周目累充: &f%season% &7月: &f%monthly% &7日: &f%daily%"
+
+    season:
+      usage: "用法: /vipadmin season <create|activate|start|current|list|info>"
+      create: "创建周目 %id%: %result%"
+      activate: "激活周目 %id%: %result%"
+      start: "开启周目 %id%: %result%"
+      current: "当前周目: %id% %name%"
+      list-line: "%mark% %id% %name%"
+      info: "%id% %name% active=%active%"
+      not-found: "周目不存在"
+      unknown: "未知 season 操作"
+
+    points:
+      usage: "用法: /vipadmin points add <player> recharge <amount> <source> <orderId>"
+      rollback-usage: "用法: /vipadmin points rollback <transactionId> [reason]"
+
+    transaction:
+      label:
+        recharge: "充值流水"
+        season: "周目积分流水"
+        points: "积分流水"
+        rollback: "回滚流水"
+      text:
+        no-change: "无变更"
+        duplicate-or-failed: "重复订单或失败"
+      inserted: "%prefix%: %id%"
+      duplicate: "%prefix%: 重复订单 %source%/%order%"
+      no-change: "%prefix%: %text%"
+      failed: "%prefix%失败: %error%"
+
+    rollback:
+      not-found: "回滚流水失败: 流水不存在"
+      failed: "回滚流水失败: %error%"
+
+  gui:
+    read-failed: "无法读取 VIP 数据: %error%"
+    status:
+      season: "&7当前周目: &f%season%"
+      level: "&7VIP等级: &f%level_name%"
+      total: "&7总累充: &f%total%"
+      season-points: "&7周目累充: &f%season%"
+      monthly: "&7本月累充: &f%monthly%"
+      daily: "&7今日累充: &f%daily%"
+      next: "&7下一级还需: &f%need%"
+    reward:
+      status: "&7状态: &f%status%"
+      click: "&a点击领取"
+      unavailable: "&8暂不可领取"
+    level:
+      total: "&7总累充门槛: &f%total%"
+      group: "&7LuckPerms组: &f%group%"
+      owned: "&a已拥有"
+      locked: "&c未拥有"

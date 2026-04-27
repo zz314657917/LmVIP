@@ -1,10 +1,33 @@
+# LmVIP 主配置
+# 本插件只通过 LmCore 的 DatabaseRegistryService 获取数据库连接，不在这里配置 MySQL 账号密码。
+
+# LmCore 数据库 profile 名称。
+# 需要在 LmCore 中存在同名数据库配置。
 database-profile: "LmVIP"
+
+# 周期统计使用的时区。
+# 日累充、月累充、周礼包刷新都按这个时区计算。
 timezone: "Asia/Shanghai"
+
+# 每周刷新起始日。
+# 可用值: MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY
 week-start: "MONDAY"
+
+# 旧版兼容项。
+# 新消息请优先改 lang.yml 的 prefix；如果 lang.yml 缺失 prefix，会回退到这里。
 message-prefix: "&6[LmVIP]&r "
 
 sync:
+  # 预留项：LuckPerms 同步失败后的重试间隔。
+  # 当前版本主要用于后续扩展，不会创建长期重试任务。
   retry-seconds: 30
 
 cache:
+  # 玩家 VIP 快照缓存时间，单位秒。
+  # PAPI 主线程读取只会读缓存；缓存过期时异步刷新。
   snapshot-ttl-seconds: 30
+
+reward:
+  # 奖励命令从异步领取流程切回主线程执行时的等待超时，单位秒。
+  # 超时或命令返回失败时，会回滚本次领取记录，玩家可稍后重试。
+  command-timeout-seconds: 5

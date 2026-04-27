@@ -1,23 +1,42 @@
+# LmVIP 等级与奖励配置
+# total-points 决定永久 VIP 等级，group 会同步到 LuckPerms。
+# 日/月累充和周礼包只影响奖励领取资格，不会让永久 VIP 权限失效。
+
 levels:
+  # VIP1 配置。节点名必须是数字等级。
   "1":
+    # 展示名称，支持 & 颜色符号。
     name: "&aVIP1"
+
+    # 达到此总累充后永久拥有该 VIP 等级。
     total-points: 100
+
+    # LuckPerms 权限组名。
     group: "vip1"
+
+    # GUI 中展示的永久福利说明。
     benefits:
       - "&7永久身份: &aVIP1"
       - "&7基础礼包与周目福利"
+
+    # 每日刷新：今日累充达到 threshold 后可领取。
     daily-reward:
       threshold: 10
       commands:
         - "say %player% 领取了 VIP1 日累充奖励"
+
+    # 每周刷新：本月累充达到 monthly-threshold 后，每周可领取一次。
     weekly-reward:
       monthly-threshold: 100
       commands:
         - "say %player% 领取了 VIP1 周礼包"
+
+    # 每月刷新：本月累充达到 threshold 后可领取。
     monthly-reward:
       threshold: 100
       commands:
         - "say %player% 领取了 VIP1 月累充奖励"
+
   "2":
     name: "&bVIP2"
     total-points: 500
@@ -37,6 +56,7 @@ levels:
       threshold: 300
       commands:
         - "say %player% 领取了 VIP2 月累充奖励"
+
   "3":
     name: "&dVIP3"
     total-points: 1000

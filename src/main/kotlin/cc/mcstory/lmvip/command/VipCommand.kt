@@ -27,12 +27,20 @@ object VipCommand {
     val info = subCommand {
         execute<ProxyCommandSender> { sender, _, _ ->
             val player = sender.cast<Player>()
-            val service = LmVipServices.vipService ?: return@execute sender.sendMessage("LmVIP 未就绪")
+            val service = LmVipServices.vipService ?: return@execute sender.sendMessage(LmVipServices.message("common.not-ready"))
             BukkitTasks.async({ service.snapshot(player, force = true) }) { result ->
-                val snapshot = result.getOrElse { return@async sender.sendMessage("读取失败: ${it.message}") }
-                sender.sendMessage("§6[LmVIP] §fVIP等级: §e${snapshot.vipLevelName}")
-                sender.sendMessage("§7总累充: §f${snapshot.totalPoints} §7周目: §f${snapshot.seasonPoints} §7本月: §f${snapshot.monthlyPoints} §7今日: §f${snapshot.dailyPoints}")
-                sender.sendMessage("§7当前周目: §f${snapshot.seasonName ?: "未设置"}")
+                val snapshot = result.getOrElse {
+                    return@async sender.sendMessage(LmVipServices.message("command.vip.info-read-failed", "error" to it.message))
+                }
+                sender.sendMessage(LmVipServices.message("command.vip.info.header", "level_name" to snapshot.vipLevelName))
+                sender.sendMessage(LmVipServices.rawMessage(
+                    "command.vip.info.points",
+                    "total" to snapshot.totalPoints,
+                    "season" to snapshot.seasonPoints,
+                    "monthly" to snapshot.monthlyPoints,
+                    "daily" to snapshot.dailyPoints
+                ))
+                sender.sendMessage(LmVipServices.rawMessage("command.vip.info.season", "season" to (snapshot.seasonName ?: LmVipServices.rawMessage("common.not-set"))))
             }
         }
     }
@@ -42,13 +50,15 @@ object VipCommand {
         dynamic(comment = "daily|weekly|monthly") {
             execute<ProxyCommandSender> { sender, context, _ ->
                 val player = sender.cast<Player>()
-                val type = ClaimType.parse(context.args().getOrNull(1) ?: "") ?: return@execute sender.sendMessage("用法: /vip claim <daily|weekly|monthly>")
-                val service = LmVipServices.vipService ?: return@execute sender.sendMessage("LmVIP 未就绪")
+                val type = ClaimType.parse(context.args().getOrNull(1) ?: "") ?: return@execute sender.sendMessage(LmVipServices.message("command.vip.claim-usage"))
+                val service = LmVipServices.vipService ?: return@execute sender.sendMessage(LmVipServices.message("common.not-ready"))
                 BukkitTasks.async({
                     val snapshot = service.snapshot(player, force = true)
                     service.rewards.claim(player, snapshot, type)
                 }) { result ->
-                    val operation = result.getOrElse { return@async sender.sendMessage("领取失败: ${it.message}") }
+                    val operation = result.getOrElse {
+                        return@async sender.sendMessage(LmVipServices.message("command.vip.claim-failed", "error" to it.message))
+                    }
                     sender.sendMessage((LmVipServices.config?.messagePrefix ?: "") + operation.message)
                 }
             }

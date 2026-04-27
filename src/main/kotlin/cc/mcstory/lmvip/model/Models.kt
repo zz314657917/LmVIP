@@ -83,3 +83,36 @@ data class OperationResult(
     val message: String,
     val transactionId: Long? = null,
 )
+
+sealed class TransactionWriteResult {
+    data class Inserted(val transactionId: Long) : TransactionWriteResult()
+    data class DuplicateOrder(val source: String, val orderId: String) : TransactionWriteResult()
+    object NoChange : TransactionWriteResult()
+
+    fun transactionIdOrNull(): Long? {
+        return when (this) {
+            is Inserted -> transactionId
+            is DuplicateOrder,
+            NoChange -> null
+        }
+    }
+
+    fun adminMessage(prefix: String, noChangeText: String = "无变更"): String {
+        return when (this) {
+            is Inserted -> "$prefix: $transactionId"
+            is DuplicateOrder -> "$prefix: 重复订单 $source/$orderId"
+            NoChange -> "$prefix: $noChangeText"
+        }
+    }
+}
+
+data class RollbackTransactionResult(
+    val playerId: UUID,
+    val playerName: String,
+    val dimension: String,
+    val writeResult: TransactionWriteResult,
+) {
+    val requiresVipSync: Boolean
+        get() = writeResult is TransactionWriteResult.Inserted &&
+            (dimension.equals("recharge", true) || dimension.equals(PointDimension.TOTAL.dbKey, true))
+}

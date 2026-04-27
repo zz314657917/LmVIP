@@ -18,7 +18,7 @@ object VipGui {
 
     fun open(player: Player) {
         val service = LmVipServices.vipService ?: run {
-            player.sendMessage("LmVIP 未就绪")
+            player.sendMessage(LmVipServices.message("common.not-ready"))
             return
         }
         BukkitTasks.async({
@@ -27,7 +27,7 @@ object VipGui {
             GuiState(snapshot, statuses)
         }) { result ->
             val state = result.getOrElse {
-                player.sendMessage("无法读取 VIP 数据: ${it.message}")
+                player.sendMessage(LmVipServices.message("gui.read-failed", "error" to it.message))
                 return@async
             }
             val config = LmVipServices.config ?: return@async
@@ -35,13 +35,13 @@ object VipGui {
             player.openMenu<Chest>(gui.title) {
                 rows(gui.rows)
                 set(gui.slots.status, item(gui.items["status"], Material.BOOK, listOf(
-                    "&7当前周目: &f${state.snapshot.seasonName ?: "未设置"}",
-                    "&7VIP等级: &f${state.snapshot.vipLevelName}",
-                    "&7总累充: &f${state.snapshot.totalPoints}",
-                    "&7周目累充: &f${state.snapshot.seasonPoints}",
-                    "&7本月累充: &f${state.snapshot.monthlyPoints}",
-                    "&7今日累充: &f${state.snapshot.dailyPoints}",
-                    "&7下一级还需: &f${state.snapshot.nextLevelNeed}"
+                    config.language.raw("gui.status.season", "season" to (state.snapshot.seasonName ?: config.language.raw("common.not-set"))),
+                    config.language.raw("gui.status.level", "level_name" to state.snapshot.vipLevelName),
+                    config.language.raw("gui.status.total", "total" to state.snapshot.totalPoints),
+                    config.language.raw("gui.status.season-points", "season" to state.snapshot.seasonPoints),
+                    config.language.raw("gui.status.monthly", "monthly" to state.snapshot.monthlyPoints),
+                    config.language.raw("gui.status.daily", "daily" to state.snapshot.dailyPoints),
+                    config.language.raw("gui.status.next", "need" to state.snapshot.nextLevelNeed)
                 ))) { isCancelled = true }
 
                 set(gui.slots.daily, rewardItem(ClaimType.DAILY, state.statuses.getValue(ClaimType.DAILY), gui.items["daily"])) {
@@ -75,7 +75,7 @@ object VipGui {
             service.rewards.claim(player, snapshot, type)
         }) { result ->
             val operation = result.getOrElse {
-                player.sendMessage("领取失败: ${it.message}")
+                player.sendMessage(LmVipServices.message("command.vip.claim-failed", "error" to it.message))
                 return@async
             }
             player.sendMessage((LmVipServices.config?.messagePrefix ?: "") + operation.message)
@@ -89,19 +89,23 @@ object VipGui {
             ClaimType.MONTHLY -> "&d月累充奖励"
         }
         return item(itemConfig, Material.CHEST, listOf(
-            "&7状态: &f${status.reason}",
-            if (status.available && !status.claimed) "&a点击领取" else "&8暂不可领取"
+            LmVipServices.rawMessage("gui.reward.status", "status" to status.reason),
+            if (status.available && !status.claimed) {
+                LmVipServices.rawMessage("gui.reward.click")
+            } else {
+                LmVipServices.rawMessage("gui.reward.unavailable")
+            }
         ), fallbackName)
     }
 
     private fun levelItem(level: VipLevel, owned: Boolean, itemConfig: GuiItemConfig?): ItemStack {
         val lore = mutableListOf<String>()
-        lore += "&7总累充门槛: &f${level.totalPoints}"
-        lore += "&7LuckPerms组: &f${level.group}"
+        lore += LmVipServices.rawMessage("gui.level.total", "total" to level.totalPoints)
+        lore += LmVipServices.rawMessage("gui.level.group", "group" to level.group)
         lore += ""
         lore += level.benefits
         lore += ""
-        lore += if (owned) "&a已拥有" else "&c未拥有"
+        lore += if (owned) LmVipServices.rawMessage("gui.level.owned") else LmVipServices.rawMessage("gui.level.locked")
         val name = itemConfig?.name?.replace("%level_name%", level.name) ?: level.name
         return item(material(itemConfig?.material, Material.PAPER), name, lore)
     }

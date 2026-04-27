@@ -1,26 +1,53 @@
+# LmVIP 内置 GUI 配置
+# 玩家执行 /vip 打开此菜单。
+
+# 菜单标题，支持 & 颜色符号。
 title: "&6VIP 权益"
+
+# 菜单行数，范围 1-6。
 rows: 6
 
 slots:
+  # 当前玩家 VIP 状态展示槽位。
   status: 4
+
+  # 日累充奖励领取按钮槽位。
   daily: 20
+
+  # VIP 周礼包领取按钮槽位。
+  # 资格由本月累充门槛决定，领取周期按 week-start 每周刷新。
   weekly: 22
+
+  # 月累充奖励领取按钮槽位。
   monthly: 24
+
+  # VIP 等级展示槽位。
+  # 等级数量超过槽位数量时，只显示前几个等级。
   levels: [28, 29, 30, 31, 32, 33, 34]
 
 items:
+  # 状态展示物品。
   status:
     material: "BOOK"
     name: "&e我的 VIP"
+
+  # 日奖励按钮。
   daily:
     material: "CHEST"
     name: "&a领取日累充奖励"
+
+  # 周礼包按钮。
   weekly:
     material: "ENDER_CHEST"
     name: "&b领取 VIP 周礼包"
+
+  # 月奖励按钮。
   monthly:
     material: "DIAMOND"
     name: "&d领取月累充奖励"
+
+  # VIP 等级展示物品。
+  # %level_name% 会替换为 levels.yml 中配置的等级名。
   level:
     material: "PAPER"
     name: "&e%level_name%"

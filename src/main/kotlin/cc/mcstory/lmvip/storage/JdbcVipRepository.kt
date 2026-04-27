@@ -1,15 +1,20 @@
 package cc.mcstory.lmvip.storage
 
 import cc.mcstory.lmvip.model.PointDimension
+import cc.mcstory.lmvip.model.RollbackTransactionResult
 import cc.mcstory.lmvip.model.SeasonRecord
+import cc.mcstory.lmvip.model.TransactionWriteResult
 import cc.mcstory.lmvip.model.VipSnapshot
 import cc.mcstory.lmvip.service.VipCalculator
 import cc.mcstory.lmvip.time.PeriodService
 import cc.mcstory.lmcore.api.DatabaseRegistryService
 import cc.mcstory.lmcore.api.DatabaseService
 import cc.mcstory.lmcore.api.LmCoreApi
+import org.bukkit.Bukkit
 import java.sql.Connection
 import java.sql.ResultSet
+import java.sql.SQLException
+import java.sql.SQLIntegrityConstraintViolationException
 import java.sql.Statement
 import java.sql.Types
 import java.util.UUID
@@ -235,12 +240,12 @@ class JdbcVipRepository(
         }
     }
 
-    fun addRecharge(playerId: UUID, playerName: String, amount: Long, source: String, orderId: String, operator: String, reason: String): Long? {
+    fun addRecharge(playerId: UUID, playerName: String, amount: Long, source: String, orderId: String, operator: String, reason: String): TransactionWriteResult {
         val season = activeSeason() ?: throw IllegalStateException("No active season. Use /vipadmin season start first.")
         return insertTransaction(playerId, playerName, season.seasonId, "recharge", amount, source, orderId, operator, reason)
     }
 
-    fun adjustSeason(playerId: UUID, playerName: String, seasonId: String, targetValue: Long?, delta: Long?, operator: String, reason: String): Long? {
+    fun adjustSeason(playerId: UUID, playerName: String, seasonId: String, targetValue: Long?, delta: Long?, operator: String, reason: String): TransactionWriteResult {
         val current = snapshot(playerId, playerName, seasonId, emptyList()).seasonPoints
         val amount = when {
             targetValue != null -> targetValue.coerceAtLeast(0L) - current
@@ -248,11 +253,11 @@ class JdbcVipRepository(
             delta != null -> delta
             else -> 0L
         }
-        if (amount == 0L) return null
+        if (amount == 0L) return TransactionWriteResult.NoChange
         return insertTransaction(playerId, playerName, seasonId, "season", amount, null, null, operator, reason)
     }
 
-    fun adjustDimension(playerId: UUID, playerName: String, dimension: PointDimension, targetValue: Long?, delta: Long?, operator: String, reason: String): Long? {
+    fun adjustDimension(playerId: UUID, playerName: String, dimension: PointDimension, targetValue: Long?, delta: Long?, operator: String, reason: String): TransactionWriteResult {
         val season = activeSeason()
         val snapshot = snapshot(playerId, playerName, season?.seasonId, emptyList())
         val current = when (dimension) {
@@ -267,12 +272,12 @@ class JdbcVipRepository(
             delta != null -> delta
             else -> 0L
         }
-        if (amount == 0L) return null
+        if (amount == 0L) return TransactionWriteResult.NoChange
         val seasonId = if (dimension == PointDimension.TOTAL) season?.seasonId else requireNotNull(season?.seasonId) { "No active season." }
         return insertTransaction(playerId, playerName, seasonId, dimension.dbKey, amount, null, null, operator, reason)
     }
 
-    fun rollback(transactionId: Long, operator: String, reason: String): Long? {
+    fun rollback(transactionId: Long, operator: String, reason: String): RollbackTransactionResult? {
         database.getConnection().use { connection ->
             connection.prepareStatement("SELECT * FROM lmvip_transactions WHERE id=?").use {
                 it.setLong(1, transactionId)
@@ -285,10 +290,11 @@ class JdbcVipRepository(
                     val amount = -rs.getLong("amount")
                     val dayKey = rs.getString("day_key")
                     val monthKey = rs.getString("month_key")
-                    return insertTransaction(
+                    val writeResult = insertTransaction(
                         playerId, playerName, seasonId, dimension, amount, "rollback", "tx-$transactionId",
                         operator, reason.ifBlank { "rollback $transactionId" }, dayKey, monthKey, transactionId
                     )
+                    return RollbackTransactionResult(playerId, playerName, dimension, writeResult)
                 }
             }
         }
@@ -359,9 +365,27 @@ class JdbcVipRepository(
                 it.setLong(7, periods.nowMillis())
                 return try {
                     it.executeUpdate() > 0
-                } catch (_: Exception) {
+                } catch (_: SQLIntegrityConstraintViolationException) {
                     false
+                } catch (exception: SQLException) {
+                    Bukkit.getLogger().warning("[LmVIP] Failed to insert claim for $playerId $claimType/$periodKey: ${exception.message}")
+                    throw exception
                 }
+            }
+        }
+    }
+
+    fun deleteClaim(playerId: UUID, seasonId: String, claimType: String, level: Int, periodKey: String): Boolean {
+        database.getConnection().use { connection ->
+            connection.prepareStatement(
+                "DELETE FROM lmvip_claims WHERE player_uuid=? AND season_id=? AND claim_type=? AND level=? AND period_key=?"
+            ).use {
+                it.setString(1, playerId.toString())
+                it.setString(2, seasonId)
+                it.setString(3, claimType)
+                it.setInt(4, level)
+                it.setString(5, periodKey)
+                return it.executeUpdate() > 0
             }
         }
     }
@@ -388,10 +412,10 @@ class JdbcVipRepository(
         dayKey: String = periods.dayKey(),
         monthKey: String = periods.monthKey(),
         rolledBackId: Long? = null,
-    ): Long? {
-        if (amount == 0L) return null
+    ): TransactionWriteResult {
+        if (amount == 0L) return TransactionWriteResult.NoChange
         if (!source.isNullOrBlank() && !orderId.isNullOrBlank() && existingSourceOrder(source, orderId)) {
-            return null
+            return TransactionWriteResult.DuplicateOrder(source, orderId)
         }
         database.getConnection().use { connection ->
             connection.prepareStatement(
@@ -418,9 +442,22 @@ class JdbcVipRepository(
                 if (rolledBackId == null) it.setNull(13, Types.BIGINT) else it.setLong(13, rolledBackId)
                 return try {
                     it.executeUpdate()
-                    it.generatedKeys.use { keys -> if (keys.next()) keys.getLong(1) else null }
-                } catch (_: Exception) {
-                    null
+                    it.generatedKeys.use { keys ->
+                        if (keys.next()) TransactionWriteResult.Inserted(keys.getLong(1)) else {
+                            throw SQLException("No generated transaction id returned")
+                        }
+                    }
+                } catch (_: SQLIntegrityConstraintViolationException) {
+                    if (!source.isNullOrBlank() && !orderId.isNullOrBlank()) {
+                        TransactionWriteResult.DuplicateOrder(source, orderId)
+                    } else {
+                        throw SQLException("Transaction unique constraint violation")
+                    }
+                } catch (exception: SQLException) {
+                    Bukkit.getLogger().warning(
+                        "[LmVIP] Failed to insert transaction for $playerId dimension=$dimension source=${source ?: "-"} order=${orderId ?: "-"}: ${exception.message}"
+                    )
+                    throw exception
                 }
             }
         }

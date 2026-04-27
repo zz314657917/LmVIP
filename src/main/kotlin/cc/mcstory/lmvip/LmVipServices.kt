@@ -39,6 +39,18 @@ object LmVipServices {
         this.config = config
     }
 
+    fun message(key: String, vararg placeholders: Pair<String, Any?>): String {
+        return config?.language?.message(key, *placeholders) ?: key
+    }
+
+    fun rawMessage(key: String, vararg placeholders: Pair<String, Any?>): String {
+        return config?.language?.raw(key, *placeholders) ?: key
+    }
+
+    fun messageList(key: String, vararg placeholders: Pair<String, Any?>): List<String> {
+        return config?.language?.list(key, *placeholders).takeUnless { it.isNullOrEmpty() } ?: listOf(key)
+    }
+
     fun disable() {
         config = null
         repository = null
