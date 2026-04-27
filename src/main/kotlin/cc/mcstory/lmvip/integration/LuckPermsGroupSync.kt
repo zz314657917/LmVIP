@@ -23,29 +23,34 @@ class LuckPermsGroupSync(levels: List<VipLevel>) {
     }
 
     fun sync(player: OfflinePlayer, vipLevel: Int): Boolean {
-        val api = api ?: return false
-        val user = loadUser(api, player.uniqueId) ?: return false
-        var changed = false
-        for (node in getNodes(user).toList()) {
-            val key = readNodeKey(node)
-            if (key.startsWith("group.", true)) {
-                val group = key.substringAfter("group.")
-                if (groups.any { it.equals(group, true) }) {
-                    invokeDataMutation(user, "remove", node)
-                    changed = true
+        return try {
+            val api = api ?: return false
+            val user = loadUser(api, player.uniqueId) ?: return false
+            var changed = false
+            for (node in getNodes(user).toList()) {
+                val key = readNodeKey(node)
+                if (key.startsWith("group.", true)) {
+                    val group = key.substringAfter("group.")
+                    if (groups.any { it.equals(group, true) }) {
+                        invokeDataMutation(user, "remove", node)
+                        changed = true
+                    }
                 }
             }
+            val targetGroup = levelGroup[vipLevel]
+            if (!targetGroup.isNullOrBlank()) {
+                val node = buildInheritanceNode(targetGroup)
+                invokeDataMutation(user, "add", node)
+                changed = true
+            }
+            if (changed) {
+                saveUser(api, user)
+            }
+            true
+        } catch (exception: Exception) {
+            Bukkit.getLogger().warning("[LmVIP] LuckPerms sync failed for ${player.uniqueId}: ${exception.message}")
+            false
         }
-        val targetGroup = levelGroup[vipLevel]
-        if (!targetGroup.isNullOrBlank()) {
-            val node = buildInheritanceNode(targetGroup)
-            invokeDataMutation(user, "add", node)
-            changed = true
-        }
-        if (changed) {
-            saveUser(api, user)
-        }
-        return true
     }
 
     private fun resolveApi(): Any? {
@@ -71,8 +76,9 @@ class LuckPermsGroupSync(levels: List<VipLevel>) {
     }
 
     private fun saveUser(api: Any, user: Any) {
-        val manager = api.javaClass.getMethod("getUserManager").invoke(api)
+        val manager = invokeMethod(api, "getUserManager") ?: return
         val method = manager.javaClass.methods.firstOrNull { it.name == "saveUser" && it.parameterTypes.size == 1 } ?: return
+        method.isAccessible = true
         val value = method.invoke(manager, user)
         if (value is CompletableFuture<*>) value.get(5L, TimeUnit.SECONDS)
     }
@@ -81,6 +87,7 @@ class LuckPermsGroupSync(levels: List<VipLevel>) {
         val method = user.javaClass.methods.firstOrNull {
             it.name == "getNodes" || it.name == "getDistinctNodes" || it.name == "getOwnNodes"
         } ?: return emptyList()
+        method.isAccessible = true
         val value = method.invoke(user)
         return if (value is Collection<*>) value.filterNotNull() else emptyList()
     }
@@ -94,22 +101,31 @@ class LuckPermsGroupSync(levels: List<VipLevel>) {
         val nodeClass = Class.forName("net.luckperms.api.node.types.InheritanceNode")
         val builder = nodeClass.getMethod("builder", String::class.java).invoke(null, group)
         val build = builder.javaClass.methods.first { it.name == "build" && it.parameterTypes.isEmpty() }
+        build.isAccessible = true
         return build.invoke(builder)
     }
 
     private fun invokeDataMutation(user: Any, methodName: String, node: Any) {
-        val data = user.javaClass.getMethod("data").invoke(user)
+        val data = invokeMethod(user, "data") ?: throw NoSuchMethodException("LuckPerms user.data()")
         val method = data.javaClass.methods.firstOrNull { it.name == methodName && it.parameterTypes.size == 1 }
             ?: throw NoSuchMethodException("LuckPerms data.$methodName(node)")
+        method.isAccessible = true
         method.invoke(data, node)
     }
 
     private fun invokeQuietly(target: Any, name: String): Any? {
         return try {
-            target.javaClass.getMethod(name).invoke(target)
+            invokeMethod(target, name)
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun invokeMethod(target: Any, name: String, vararg args: Any): Any? {
+        val method = target.javaClass.methods.firstOrNull { it.name == name && it.parameterTypes.size == args.size }
+            ?: target.javaClass.getDeclaredMethod(name)
+        method.isAccessible = true
+        return method.invoke(target, *args)
     }
 
     private fun findMethod(type: Class<*>, name: String, vararg params: Class<*>): Method? {

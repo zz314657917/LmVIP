@@ -2,6 +2,7 @@
 .kotlin/
 build/
 out/
+.test-artifacts/
 
 *.class
 *.log
