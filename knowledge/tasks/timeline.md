@@ -1,5 +1,17 @@
 # LmVIP 时间轴
 
+## 2026-04-28 19:37 +08:00 - 最终提测与 API 联调
+
+- 当前阶段：`LmVIP` 已完成最终 test-cell 提测，可以交付 `build/libs/LmVIP.jar` 到正式测试服试跑。
+- 本段重点：刷新 `LmCore-v2` 与 LmVIP 构建基线，补 `LmVipApi` 临时 probe 跨插件联调，并把 reward 失败回滚、配置自动补齐、依赖缺失和清理状态补成证据链。
+- 已完成：提交 `228f4d5 记录 LmVIP LmCore-v2 接入验证`；`LmCore-v2` 使用 `mvn clean install "-DskipTests" "-Dmaven.test.skip=true"` 成功安装本地 Maven 依赖；LmVIP `clean build --stacktrace` 通过；cell-02 临时部署 `LmCore-v2 + LuckPerms 5.4.145 + LmVIP + LmVipApiProbe` 完成 smoke。
+- 关键决策：`mvn clean install -DskipTests` 会进入 testCompile 并因 LmCore-v2 测试缺 `DefaultExpressionService`、`DefaultRuleService`、`DefaultActionService` 失败；为刷新 LmVIP 构建依赖，当前使用 `-Dmaven.test.skip=true` 跳过测试编译。
+- 验证记录：`database(LmVIP): available`；充值 `1000` 后 `total_points=1000, vip_level=3`，LuckPerms 父组为 `default + vip3`；重复 `source + orderId` 未重复入账；PAPI 返回 `3/1000`；API probe 返回 `cachedLevel=3,cachedTotal=1000,asyncLevel=3,asyncTotal=1000`；rollback 后积分和 API/PAPI 均回到 `0`，LuckPerms 只剩 `default`。
+- 验证记录：once/daily/weekly/monthly 领取成功且重复领取失败；故意配置失败奖励命令后提示“奖励发放失败，领取记录已回滚”，once level 3 失败后 DB 中无 level 3 claim；删除 `lang.yml` 和 `config.yml` 必要 key 后 `/vipadmin reload` 自动补齐并生成备份；缺 `LmCore` 或缺 `LuckPerms` 时 `LmVIP.jar` 被 `UnknownDependencyException` 阻止加载。
+- 收尾记录：cell-02 已恢复原始 `LmCore.jar/LuckPerms.jar/ops.json` 等状态并释放 owner；端口 `25575/38090/38091` 关闭；临时 `LmVipApiProbe.jar` 与源码已删除；`lmvip_%` 测试表已清空。
+- 遗留问题：未做长时间高频 PAPI 压测；正式服运营奖励命令仍需按真实礼包内容再验收；LmCore-v2 自身测试编译缺类不属于 LmVIP 本轮修复范围。
+- 下一步：正式测试服准备 `LmCore.jar`、LuckPerms 5.4.x 和 `database("LmVIP")` profile，部署 `F:/mcplugins/LmVIP/build/libs/LmVIP.jar`，按 README 清单做正式奖励命令验收。
+
 ## 2026-04-28 15:56 +08:00 - 接入 LmCore-v2 基础能力
 
 - 当前阶段：`LmVIP` 已确认不需要依赖旧 `F:/mcplugins/LmCore` 目录即可构建和启动；本阶段只做 `LmCore-v2` 基础服务接入，不接 PlayerState V2。
