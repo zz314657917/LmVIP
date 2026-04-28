@@ -1,6 +1,7 @@
 package cc.mcstory.lmvip.command
 
 import cc.mcstory.lmvip.LmVipServices
+import cc.mcstory.lmvip.api.BukkitLmVipApi
 import cc.mcstory.lmvip.config.VipConfigManager
 import cc.mcstory.lmvip.integration.LmVipPlaceholderExpansion
 import cc.mcstory.lmvip.model.PointDimension
@@ -99,8 +100,19 @@ object VipAdminCommand {
             val loaded = VipConfigManager.load(plugin)
             LmVipServices.updateConfig(loaded)
             current?.updateConfig(loaded)
+            (LmVipServices.api as? BukkitLmVipApi)?.clearInFlight()
             LmVipPlaceholderExpansion.clear()
             sender.sendMessage(msg("admin.reload-success"))
+        }
+    }
+
+    @CommandBody
+    val cache = subCommand {
+        dynamic(comment = "action") {
+            dynamic(comment = "player", optional = true) {
+                execute<ProxyCommandSender> { sender, context, _ -> handleCache(sender, context.args().toList()) }
+            }
+            execute<ProxyCommandSender> { sender, context, _ -> handleCache(sender, context.args().toList()) }
         }
     }
 
@@ -213,6 +225,60 @@ object VipAdminCommand {
             sender.sendMessage(raw("admin.info.season", "id" to (snapshot.seasonId ?: "-"), "name" to (snapshot.seasonName ?: "")))
             sender.sendMessage(raw("admin.info.vip", "level_name" to snapshot.vipLevelName, "total" to snapshot.totalPoints))
             sender.sendMessage(raw("admin.info.points", "season" to snapshot.seasonPoints, "monthly" to snapshot.monthlyPoints, "daily" to snapshot.dailyPoints))
+        }
+    }
+
+    private fun handleCache(sender: ProxyCommandSender, args: List<String>) {
+        val service = LmVipServices.vipService ?: return sender.sendMessage(msg("common.not-ready"))
+        when (args.getOrNull(1)?.lowercase()) {
+            "stats" -> {
+                val stats = LmVipPlaceholderExpansion.stats()
+                val apiInFlight = (LmVipServices.api as? BukkitLmVipApi)?.inFlightCount() ?: 0
+                LmVipServices.messageList(
+                    "admin.cache.stats",
+                    "papi_size" to stats.size,
+                    "papi_refreshing" to stats.refreshing,
+                    "api_inflight" to apiInFlight,
+                    "hits" to stats.hits,
+                    "misses" to stats.misses,
+                    "stale_hits" to stats.staleHits,
+                    "refresh_success" to stats.refreshSuccess,
+                    "refresh_failure" to stats.refreshFailure,
+                    "refresh_skipped" to stats.refreshSkipped,
+                    "last_error" to (stats.lastError ?: "-")
+                ).forEach(sender::sendMessage)
+            }
+            "clear" -> {
+                val playerName = args.getOrNull(2)
+                if (playerName == null) {
+                    service.clearCache()
+                    (LmVipServices.api as? BukkitLmVipApi)?.clearInFlight()
+                    sender.sendMessage(msg("admin.cache.clear-all"))
+                } else {
+                    val player = offline(playerName)
+                    service.invalidateCache(player.uniqueId)
+                    (LmVipServices.api as? BukkitLmVipApi)?.clearInFlight(player.uniqueId)
+                    sender.sendMessage(msg("admin.cache.clear-player", "player" to playerName))
+                }
+            }
+            "warm" -> {
+                val playerName = args.getOrNull(2) ?: return sender.sendMessage(msg("admin.cache.usage"))
+                val player = offline(playerName)
+                sender.sendMessage(msg("admin.cache.warm-submitted", "player" to playerName))
+                BukkitTasks.async({ service.snapshot(player, force = true) }) { result ->
+                    result.fold(
+                        onSuccess = {
+                            LmVipPlaceholderExpansion.refresh(it.playerId, it.playerName)
+                            sender.sendMessage(msg("admin.cache.warm-success", "player" to playerName, "level" to it.vipLevel))
+                        },
+                        onFailure = {
+                            sender.sendMessage(msg("admin.cache.warm-failed", "player" to playerName, "error" to (it.message ?: it.javaClass.simpleName)))
+                        }
+                    )
+                }
+            }
+            null -> sender.sendMessage(msg("admin.cache.usage"))
+            else -> sender.sendMessage(msg("admin.cache.unknown"))
         }
     }
 

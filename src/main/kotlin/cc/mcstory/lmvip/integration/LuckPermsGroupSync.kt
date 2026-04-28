@@ -85,7 +85,7 @@ class LuckPermsGroupSync(levels: List<VipLevel>) {
 
     private fun getNodes(user: Any): Collection<Any> {
         val method = user.javaClass.methods.firstOrNull {
-            it.name == "getNodes" || it.name == "getDistinctNodes" || it.name == "getOwnNodes"
+            it.parameterTypes.isEmpty() && (it.name == "getNodes" || it.name == "getDistinctNodes" || it.name == "getOwnNodes")
         } ?: return emptyList()
         method.isAccessible = true
         val value = method.invoke(user)

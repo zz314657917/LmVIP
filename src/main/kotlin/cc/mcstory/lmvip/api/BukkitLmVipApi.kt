@@ -1,6 +1,7 @@
 package cc.mcstory.lmvip.api
 
 import cc.mcstory.lmvip.LmVipServices
+import cc.mcstory.lmvip.cache.SingleFlight
 import cc.mcstory.lmvip.service.VipService
 import org.bukkit.Bukkit
 import taboolib.platform.BukkitPlugin
@@ -10,6 +11,8 @@ import java.util.concurrent.CompletableFuture
 class BukkitLmVipApi(
     private val service: VipService,
 ) : LmVipApi {
+    private val inFlight = SingleFlight<UUID, VipApiSnapshot>()
+
     override fun isReady(): Boolean {
         return LmVipServices.ready
     }
@@ -47,6 +50,22 @@ class BukkitLmVipApi(
     }
 
     private fun loadAsync(playerId: UUID, playerName: String, force: Boolean): CompletableFuture<VipApiSnapshot> {
+        return inFlight.getOrStart(playerId) {
+            doLoadAsync(playerId, playerName, force)
+        }
+    }
+
+    fun inFlightCount(): Int = inFlight.inFlightCount()
+
+    fun clearInFlight(playerId: UUID) {
+        inFlight.clear(playerId)
+    }
+
+    fun clearInFlight() {
+        inFlight.clear()
+    }
+
+    private fun doLoadAsync(playerId: UUID, playerName: String, force: Boolean): CompletableFuture<VipApiSnapshot> {
         val future = CompletableFuture<VipApiSnapshot>()
         if (!LmVipServices.ready) {
             future.completeExceptionally(IllegalStateException("LmVIP is not ready."))

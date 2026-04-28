@@ -47,6 +47,7 @@ messages:
       - "&6/vipadmin points add <player> recharge <amount> <source> <orderId>"
       - "&6/vipadmin points season <add|take|set|reset> <player> <seasonId> [amount]"
       - "&6/vipadmin info <player> [seasonId]"
+      - "&6/vipadmin cache <stats|clear|warm> [player]"
 
     reload-success: "配置已重载"
     operation-failed: "操作失败: %error%"
@@ -94,6 +95,21 @@ messages:
     rollback:
       not-found: "回滚流水失败: 流水不存在"
       failed: "回滚流水失败: %error%"
+
+    cache:
+      usage: "用法: /vipadmin cache <stats|clear|warm> [player]"
+      stats:
+        - "&6LmVIP 缓存状态"
+        - "&7PAPI缓存: &f%papi_size% &7刷新中: &f%papi_refreshing% &7API加载中: &f%api_inflight%"
+        - "&7命中: &f%hits% &7未命中: &f%misses% &7旧值命中: &f%stale_hits%"
+        - "&7刷新: &a%refresh_success% &7成功 / &c%refresh_failure% &7失败 / &e%refresh_skipped% &7合并"
+        - "&7最近错误: &f%last_error%"
+      clear-all: "已清理全部 VIP 缓存"
+      clear-player: "已清理 %player% 的 VIP 缓存"
+      warm-submitted: "已提交 %player% 的缓存预热"
+      warm-success: "已预热 %player% 的缓存: VIP %level%"
+      warm-failed: "预热 %player% 的缓存失败: %error%"
+      unknown: "未知 cache 操作"
 
   gui:
     read-failed: "无法读取 VIP 数据: %error%"

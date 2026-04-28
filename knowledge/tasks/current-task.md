@@ -2,57 +2,54 @@
 
 ## 背景
 
-LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms，可选接入 PlaceholderAPI。当前版本已完成 review 修复、一次性 VIP 礼包、配置/语言文件自动补齐、`LmVipApi` 对外查询 API，并完成 Docker MySQL + test-cell 运行态提测。
+LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms，可选接入 PlaceholderAPI。当前版本已完成 review 修复、一次性 VIP 礼包、配置/语言文件自动补齐、`LmVipApi` 对外查询 API，并在 Docker MySQL + test-cell 中做过核心运行态提测。
 
 ## 当前目标
 
-状态：提测完成，进入交付测试包阶段。
+状态：PAPI 高频缓存加固已完成，进入提交与后续正式服复测阶段。
 
-本轮不新增玩法功能，只收口 `LmCore-v2` 运行依赖、`LmVipApi` 跨插件查询、正式奖励配置失败路径、高频展示入口的缓存行为，以及测试环境清理。
+本轮不新增 VIP 玩法，只加固单服缓存策略：PAPI 主线程永远只读内存，缓存过期返回旧值并合并异步刷新，无缓存返回空字符串并合并异步刷新；`LmVipApi#getSnapshotAsync` / `refreshSnapshotAsync` 同玩家 in-flight 查询合并。
 
 ## 本次已完成
 
-- 提交知识更新：`228f4d5 记录 LmVIP LmCore-v2 接入验证`。
-- 刷新 `LmCore-v2` 本地 Maven 基线：`mvn clean install -DskipTests` 会卡在 testCompile 缺少 `DefaultExpressionService`、`DefaultRuleService`、`DefaultActionService`；实际使用 `mvn clean install "-DskipTests" "-Dmaven.test.skip=true"` 成功安装 `cc.mcstory:lm-core:1.1.0-SNAPSHOT`。
-- 刷新 LmVIP 构建基线：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace` 通过，产物为 `F:/mcplugins/LmVIP/build/libs/LmVIP.jar`。
-- 创建临时 `LmVipApiProbe` 插件并在 test-cell 通过 Bukkit `ServicesManager` 获取 `LmVipApi`，验证缓存查询和异步 snapshot 查询。
-- 完成 Docker MySQL + cell-02 运行态 smoke：开周目、充值、重复订单、领奖、once、PAPI、API probe、rollback、奖励命令失败回滚、配置自动补齐。
-- 完成依赖缺失验证：缺 `LmCore` 或缺 `LuckPerms` 时，Bukkit 均阻止加载 `LmVIP.jar` 并输出 `UnknownDependencyException`。
-- 完成收尾清理：cell-02 已恢复原始插件状态并释放租约，端口 `25575`、`38090`、`38091` 已关闭，`lmvip_%` 测试表已清空，临时 API probe jar 和源码已删除。
+- 新增 `RefreshingValueCache` 与 `SingleFlight`，覆盖 PAPI 旧值优先、刷新去重、API in-flight 合并。
+- `/vipadmin cache stats|clear|warm` 已落地，`lang.yml` 与 README 已补说明。
+- 新增 `cache.retain-after-quit-seconds: 300`，默认配置带注释；缺失 key 会通过既有默认合并逻辑自动补齐。
+- `PlayerQuitEvent` 增加延迟缓存清理，默认玩家离线 300 秒后清理。
+- 修复运行态发现的 LuckPerms 反射问题：只选择零参数 `getNodes` / `getDistinctNodes` / `getOwnNodes`，避免误调用 `getNodes(NodeType)` 导致 `wrong number of arguments`。
+- test-cell 验证结束后已停止 cell、恢复 jar/config/ops，释放租约并删除 `lmvip_%` 测试表。
 
 ## 已确认事实
 
 - 构建产物：`F:/mcplugins/LmVIP/build/libs/LmVIP.jar`。
 - 当前运行依赖：运行时插件名仍为 `LmCore` 与 `LuckPerms`；数据库仍走 LmCore profile `LmVIP`，不接入 LmCore PlayerState V2。
-- API 构建内容：`LmVIP.jar` 已包含 `LmVipApi`、`VipApiSnapshot`、`BukkitLmVipApi`。
-- LmCore 状态：test-cell 中 `database(LmVIP): available`，`registered-handles=0` 属于预期，因为 LmVIP 当前业务真源是 `lmvip_*` 表和 LuckPerms group。
-- 核心 smoke：`/vipadmin season start season-final-191837 FinalSmoke` 成功；`/vipadmin points add zzzderk recharge 1000 codex order-final-191837 smoke` 写入交易 `id=1`；重复 `source + orderId` 返回重复订单，不重复入账。
-- 积分与权限：充值后 `zzzderk total_points=1000, vip_level=3`，LuckPerms 父组为 `default + vip3`；rollback 后账户积分归零，父组回到仅 `default`。
-- PAPI 与 API：充值后 `%lmvip_level%=3`、`%lmvip_total_points%=1000`；probe 返回 `cachedLevel=3`、`cachedTotal=1000`、`asyncLevel=3`、`asyncTotal=1000`。rollback 后 PAPI 与 probe 均回到 0。
-- 奖励：once/daily/weekly/monthly 可领取且重复领取失败；失败奖励命令会提示“奖励发放失败，领取记录已回滚”，DB 证据为 once level 3 失败后 `lmvip_claims` 中无 level 3 记录。
-- 配置补齐：删除 `lang.yml` 并删掉 `config.yml` 的 `reward.command-timeout-seconds` 后执行 `/vipadmin reload`，语言文件和缺失 key 均自动恢复，并生成 `config.yml.bak-*`。
+- PAPI 缓存命令可用：`/vipadmin cache stats` 显示 PAPI 缓存数、刷新中、API 加载中、命中、未命中、旧值命中、刷新成功/失败、合并数和最近错误。
+- test-cell 中 500 次 `/papi parse zzzderk %lmvip_level%|%lmvip_total_points%|%lmvip_daily_claimed%` 后，缓存统计为命中 498、旧值命中 5、刷新成功 3、失败 0、合并 4，刷新任务没有随解析次数线性增长。
+- `/vipadmin cache clear zzzderk` 后首次 PAPI 返回空，`/vipadmin cache warm zzzderk` 可预热回 VIP 3。
+- 充值后 PAPI 返回 `3 / 1000 / false`；rollback 后 PAPI 返回 `0 / 0`，LuckPerms 父组从 `default + vip3` 回到仅 `default`。
+- 启动时缺失 `cache.retain-after-quit-seconds` 与旧 `lang.yml` cache 消息 key 会自动补齐并生成 `.bak-*`。
 
 ## 待验证点
 
-- 未做长时间高频计分板或聊天 PAPI 压测；当前只验证了主线程变量读取和变更后刷新结果。
-- 正式服运营奖励命令仍需按实际道具、权限、礼包内容配置后再做一次发放验收。
-- LmCore-v2 自身测试编译缺类问题不属于 LmVIP，本轮只通过 `-Dmaven.test.skip=true` 刷新本地 Maven 依赖。
+- 未单独等待 300 秒验证玩家退出后的延迟缓存清理；本轮只验证了监听器编译、配置读取和缓存 clear/warm。
+- 正式服运营奖励命令仍需按真实礼包内容再验收。
+- LmCore-v2 自身测试编译缺类问题不属于 LmVIP，本轮只消费已安装的本地 Maven 依赖。
 
 ## 当前结论
 
-可以交付 `F:/mcplugins/LmVIP/build/libs/LmVIP.jar` 进入正式测试服试跑。代码层面的 review findings、API 查询、配置补齐和核心运行态链路已通过；剩余风险集中在正式服运营奖励命令内容和长时间高频 PAPI 压力。
+可以交付 `F:/mcplugins/LmVIP/build/libs/LmVIP.jar` 进入正式测试服试跑。本轮已经把高频 PAPI 的主线程查库风险和重复异步刷新风险收口，并修复了运行态暴露的 LuckPerms 反射同步问题。
 
 ## 下一步
 
-1. 在正式测试服部署 `LmCore-v2` 对应 `LmCore.jar`、LuckPerms Bukkit 5.4.x、可选 PlaceholderAPI，并确认 LmCore 存在 `database("LmVIP")` profile。
-2. 部署 `F:/mcplugins/LmVIP/build/libs/LmVIP.jar` 后，按 README 提测清单跑一次正式奖励命令验收。
-3. 若有计分板高频刷新场景，做 10-30 分钟 PAPI 压力观察，关注主线程卡顿和数据库访问日志。
+1. 提交本轮代码、README 和知识库更新。
+2. 在正式测试服部署当前 `LmVIP.jar`，按 README 提测清单复测真实奖励命令。
+3. 如果正式服 TAB/计分板刷新频率很高，持续观察 `/vipadmin cache stats` 中 `刷新中`、`API加载中`、`刷新失败` 和 `最近错误`。
 
 ## 验证记录
 
-- `mvn clean install "-DskipTests" "-Dmaven.test.skip=true"` in `F:/mcplugins/LmCore-v2`：通过。
+- `F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --tests "cc.mcstory.lmvip.cache.*" --stacktrace`：通过。
+- `F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --stacktrace`：通过。
 - `F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace`：通过。
-- Docker dev-stack：MySQL `127.0.0.1:3307`、Redis `127.0.0.1:6380` 均健康。
-- cell-02：已部署临时 `LmCore-v2 + LuckPerms 5.4.145 + LmVIP + LmVipApiProbe` 完成运行态验证。
-- DB：测试中创建 `lmvip_accounts`、`lmvip_admin_audit`、`lmvip_claims`、`lmvip_seasons`、`lmvip_transactions`；收尾后 `SHOW TABLES LIKE 'lmvip_%'` 为空。
-- 清理：cell-02 已释放，测试端口关闭，`LmVIP.jar` 和 `LmVipApiProbe.jar` 不再留在 cell-02 插件目录。
+- Docker dev-stack：MySQL `127.0.0.1:3307`、Redis `127.0.0.1:6380` 可用。
+- cell-01：临时部署 `LmCore-v2 + LuckPerms 5.4.145 + LmVIP`，完成 cache stats、clear、warm、500 次 PAPI parse、充值、rollback、LuckPerms group 降级验证。
+- 清理：cell-01 已释放，测试端口关闭，`LmVIP.jar` 和 `LuckPerms.jar` 已从 cell-01 插件目录移除，原 `LmCore.jar` / `lm-core-1.1.0-SNAPSHOT.jar` 已恢复，`ops.json` 已恢复为空，`lmvip_%` 测试表已删除。

@@ -103,6 +103,7 @@ object VipConfigManager {
             gui = readGui(guiConfig),
             periods = PeriodService(zone, weekStart),
             snapshotTtlMillis = config.getLong("cache.snapshot-ttl-seconds", 30L) * 1000L,
+            cacheRetainAfterQuitMillis = config.getLong("cache.retain-after-quit-seconds", 300L).coerceAtLeast(0L) * 1000L,
             rewardCommandTimeoutSeconds = config.getLong("reward.command-timeout-seconds", 5L).coerceAtLeast(1L),
         )
     }

@@ -1,6 +1,8 @@
 package cc.mcstory.lmvip.integration
 
 import cc.mcstory.lmvip.LmVipServices
+import cc.mcstory.lmvip.cache.CacheStats
+import cc.mcstory.lmvip.cache.RefreshingValueCache
 import cc.mcstory.lmvip.model.ClaimStatus
 import cc.mcstory.lmvip.model.ClaimType
 import cc.mcstory.lmvip.model.VipSnapshot
@@ -9,14 +11,13 @@ import org.bukkit.Bukkit
 import org.bukkit.OfflinePlayer
 import taboolib.platform.compat.PlaceholderExpansion
 import taboolib.platform.BukkitPlugin
-import java.util.Collections
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 object LmVipPlaceholderExpansion : PlaceholderExpansion {
     override val identifier: String = "lmvip"
-    private val cache = ConcurrentHashMap<UUID, CachedPlaceholder>()
-    private val refreshing = Collections.newSetFromMap(ConcurrentHashMap<UUID, Boolean>())
+    private val cache = RefreshingValueCache<UUID, CachedPlaceholder>(
+        ttlMillis = { LmVipServices.config?.snapshotTtlMillis ?: 30_000L }
+    )
 
     fun refresh(player: OfflinePlayer) {
         refresh(player.uniqueId, player.name ?: player.uniqueId.toString())
@@ -35,28 +36,33 @@ object LmVipPlaceholderExpansion : PlaceholderExpansion {
     }
 
     fun invalidate(playerId: UUID) {
-        cache.remove(playerId)
-        refreshing.remove(playerId)
+        cache.invalidate(playerId)
     }
 
     fun clear() {
         cache.clear()
-        refreshing.clear()
+    }
+
+    fun stats(): CacheStats {
+        return cache.stats()
     }
 
     override fun onPlaceholderRequest(player: OfflinePlayer?, args: String): String {
         if (player == null || !LmVipServices.ready) return ""
-        val service = LmVipServices.vipService ?: return ""
         val playerId = player.uniqueId
         val playerName = player.name ?: playerId.toString()
-        val cached = cache[playerId]
+        val read = cache.read(playerId)
         val entry = if (Bukkit.isPrimaryThread()) {
-            if (cached == null || cached.isExpired()) {
-                refreshAsync(playerId, playerName)
+            if (read.refreshStarted) {
+                scheduleRefresh(playerId, playerName)
             }
-            cached
+            read.value
         } else {
-            loadEntry(playerId, playerName) ?: cached
+            if (read.refreshStarted) {
+                loadEntry(playerId, playerName) ?: read.value
+            } else {
+                read.value
+            }
         } ?: return ""
         return valueFor(entry, args)
     }
@@ -96,27 +102,32 @@ object LmVipPlaceholderExpansion : PlaceholderExpansion {
     }
 
     private fun refreshAsync(playerId: UUID, playerName: String) {
-        if (!refreshing.add(playerId)) return
+        if (cache.beginRefresh(playerId)) {
+            scheduleRefresh(playerId, playerName)
+        }
+    }
+
+    private fun scheduleRefresh(playerId: UUID, playerName: String) {
         Bukkit.getScheduler().runTaskAsynchronously(BukkitPlugin.getInstance(), Runnable {
-            try {
-                loadEntry(playerId, playerName)
-            } finally {
-                refreshing.remove(playerId)
-            }
+            loadEntry(playerId, playerName)
         })
     }
 
     private fun loadEntry(playerId: UUID, playerName: String): CachedPlaceholder? {
-        val service = LmVipServices.vipService ?: return null
+        val service = LmVipServices.vipService ?: run {
+            cache.finishRefreshWithoutValue(playerId)
+            return null
+        }
         return runCatching {
             val snapshot = service.snapshot(playerId, playerName, force = true)
             val statuses = RewardService.PERIODIC_TYPES.associateWith { service.rewards.status(snapshot, it) }
             val onceStatuses = LmVipServices.config?.levels.orEmpty()
                 .associate { it.level to service.rewards.onceStatus(snapshot, it.level) }
-            val entry = CachedPlaceholder(snapshot, statuses, onceStatuses, System.currentTimeMillis())
-            cache[playerId] = entry
+            val entry = CachedPlaceholder(snapshot, statuses, onceStatuses)
+            cache.refreshSucceeded(playerId, entry)
             entry
         }.getOrElse {
+            cache.refreshFailed(playerId, it)
             Bukkit.getLogger().warning("[LmVIP] Placeholder cache refresh failed for $playerId: ${it.message}")
             null
         }
@@ -126,11 +137,5 @@ object LmVipPlaceholderExpansion : PlaceholderExpansion {
         val snapshot: VipSnapshot,
         val statuses: Map<ClaimType, ClaimStatus>,
         val onceStatuses: Map<Int, ClaimStatus>,
-        val createdAt: Long,
-    ) {
-        fun isExpired(): Boolean {
-            val ttl = LmVipServices.config?.snapshotTtlMillis ?: 30_000L
-            return System.currentTimeMillis() - createdAt > ttl
-        }
-    }
+    )
 }

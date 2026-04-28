@@ -11,6 +11,7 @@ data class VipRuntimeConfig(
     val gui: GuiRuntimeConfig,
     val periods: PeriodService,
     val snapshotTtlMillis: Long,
+    val cacheRetainAfterQuitMillis: Long,
     val rewardCommandTimeoutSeconds: Long,
 )
 

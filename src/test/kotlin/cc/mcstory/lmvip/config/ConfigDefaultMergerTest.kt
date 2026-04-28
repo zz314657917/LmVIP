@@ -11,13 +11,14 @@ class ConfigDefaultMergerTest {
             ConfigDefaultMerger.PathInfo("database-profile", false),
             ConfigDefaultMerger.PathInfo("cache", true),
             ConfigDefaultMerger.PathInfo("cache.snapshot-ttl-seconds", false),
+            ConfigDefaultMerger.PathInfo("cache.retain-after-quit-seconds", false),
             ConfigDefaultMerger.PathInfo("reward", true),
             ConfigDefaultMerger.PathInfo("reward.command-timeout-seconds", false)
         )
         val existing = setOf("database-profile", "cache.snapshot-ttl-seconds")
 
         assertEquals(
-            listOf("reward.command-timeout-seconds"),
+            listOf("cache.retain-after-quit-seconds", "reward.command-timeout-seconds"),
             ConfigDefaultMerger.missingLeafPaths(defaults, existing)
         )
     }

@@ -58,6 +58,16 @@ class VipService(
         return cached.snapshot
     }
 
+    fun invalidateCache(playerId: UUID) {
+        cache.remove(playerId)
+        LmVipPlaceholderExpansion.invalidate(playerId)
+    }
+
+    fun clearCache() {
+        cache.clear()
+        LmVipPlaceholderExpansion.clear()
+    }
+
     fun addRecharge(player: OfflinePlayer, amount: Long, source: String, orderId: String, operator: String, reason: String): TransactionWriteResult {
         require(amount > 0) { "amount must be positive" }
         val name = player.name ?: player.uniqueId.toString()

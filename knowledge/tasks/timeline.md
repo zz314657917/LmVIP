@@ -1,5 +1,18 @@
 # LmVIP 时间轴
 
+## 2026-04-28 20:40 +08:00 - PAPI 高频缓存加固
+
+- 当前阶段：`LmVIP` 完成单服高频 PAPI 缓存加固，可以提交当前测试包。
+- 本段重点：PAPI 主线程固定只读内存，过期缓存返回旧值并合并异步刷新，无缓存返回空字符串并合并异步刷新；`LmVipApi` 同玩家异步查询也做 in-flight 合并。
+- 已完成：新增 `RefreshingValueCache`、`SingleFlight`、`/vipadmin cache stats|clear|warm`、`cache.retain-after-quit-seconds`、玩家退出延迟清理；README、`config.yml`、`lang.yml` 和知识快照已同步。
+- 关键决策：本阶段按 100-200 人单服压力处理，不引入 Redis 跨服失效；首次无缓存允许短暂空值，真实展示依赖进服预热、旧值优先和主动刷新。
+- 验证记录：`test --tests "cc.mcstory.lmvip.cache.*"`、完整 `test --stacktrace`、`clean build --stacktrace` 均通过；cell-01 中 500 次 PAPI parse 后统计为命中 498、旧值命中 5、刷新成功 3、失败 0、合并 4，没有线性增长。
+- 验证记录：test-cell 中 `cache clear zzzderk` 后首次 PAPI 返回空，`cache warm zzzderk` 恢复 VIP 3；充值后 PAPI 为 `3/1000/false`，rollback 后 PAPI 为 `0/0`，LuckPerms 父组从 `default + vip3` 回到仅 `default`。
+- 运行态修复：本轮发现并修复 LuckPerms 反射读取节点时误选 `getNodes(NodeType)` 的问题，改为只选择零参数节点方法，避免 `wrong number of arguments`。
+- 收尾记录：cell-01 已停止并释放，临时 jar/config/ops 已恢复，`lmvip_%` 测试表已删除。
+- 遗留问题：未单独等待默认 300 秒验证离线缓存延迟清理；正式服运营奖励命令仍需按真实礼包内容复测。
+- 下一步：提交本轮改动；正式测试服部署 `build/libs/LmVIP.jar` 后继续观察 `/vipadmin cache stats` 的刷新失败、刷新中和 API 加载中指标。
+
 ## 2026-04-28 19:37 +08:00 - 最终提测与 API 联调
 
 - 当前阶段：`LmVIP` 已完成最终 test-cell 提测，可以交付 `build/libs/LmVIP.jar` 到正式测试服试跑。
