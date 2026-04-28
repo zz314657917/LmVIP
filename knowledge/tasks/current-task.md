@@ -25,7 +25,9 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 
 - 构建产物：`F:/mcplugins/LmVIP/build/libs/LmVIP.jar`。
 - 功能代码基线：`09e971d 新增 LmVIP 对外查询 API`。
+- 基础能力依赖基线：`2579a54 改用本地 Maven 依赖 LmCore` 已把 Gradle 编译依赖切到 `cc.mcstory:lm-core:1.1.0-SNAPSHOT`，构建前由 `F:/mcplugins/LmCore-v2 mvn clean install -DskipTests` 更新本地 Maven 坐标，不再写死 `F:/mcplugins/LmCore/target/...`。
 - 已在 Docker MySQL + test-cell 环境验证 LmCore profile `LmVIP` 可建表并执行核心链路。
+- 已在 test-cell 临时部署 `LmCore-v2 + LuckPerms 5.4.145 + LmVIP` 验证基础服务接入：`/lmcore status` 可见 `LmVIP` profile available，`registered-handles=0`；`/lmcore testdb LmVIP` 成功；`/vipadmin season start`、充值和 `/vipadmin info` 成功。
 - 缺少 `LmCore` 或缺少 `LuckPerms` 时，Bukkit 会阻止加载 `LmVIP.jar` 并输出 `UnknownDependencyException`。
 - 本地 `F:/minecraft/server/paper-1.12.2` 当前缺少 LuckPerms，不适合直接作为 LmVIP 提测部署目标。
 
@@ -56,6 +58,7 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 - `git diff --check`：通过。
 - Docker MySQL：`lmvip_%` 测试表已创建并在收尾时清理为空。
 - test-cell `cell-02`：已完成运行态验证，收尾时已释放，端口 `25575`、`38090`、`38091` 已关闭。
+- test-cell `cell-01` LmCore-v2 基础接入 smoke：`LmCore-v2 mvn clean install -DskipTests` 通过；`LmVIP clean build --stacktrace` 通过；临时部署后 DB 证据为 `lmvip_seasons=1`、`lmvip_transactions=1`、`zzzderk total_points=100, vip_level=1`；收尾已停止 cell、释放本轮 owner、删除 `LmVIP.jar/LuckPerms.jar` 临时 jar、恢复 `ops.json=[]`、删除 `lmvip_%` 表。
 - 依赖缺失验证：缺 `LmCore` 和缺 `LuckPerms` 均能阻止 LmVIP 加载并输出明确依赖错误。
 - API 构建验证：`LmVipApi`、`VipApiSnapshot`、`BukkitLmVipApi` 已打入 `build/libs/LmVIP.jar`。
 - 仓库知识入口：`knowledge/00-start-here.md`。

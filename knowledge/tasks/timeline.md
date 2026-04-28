@@ -1,5 +1,16 @@
 # LmVIP 时间轴
 
+## 2026-04-28 15:56 +08:00 - 接入 LmCore-v2 基础能力
+
+- 当前阶段：`LmVIP` 已确认不需要依赖旧 `F:/mcplugins/LmCore` 目录即可构建和启动；本阶段只做 `LmCore-v2` 基础服务接入，不接 PlayerState V2。
+- 本段重点：沿用 Gradle/TabooLib 现有工具链，消费本地 Maven 坐标 `cc.mcstory:lm-core:1.1.0-SNAPSHOT`；运行时仍强依赖插件名 `LmCore` 与 `LuckPerms`，数据库继续走 `DatabaseRegistryService.database("LmVIP")`。
+- 已完成：确认 `2579a54 改用本地 Maven 依赖 LmCore` 已把 `build.gradle.kts` 从旧 `F:/mcplugins/LmCore/target/lm-core-1.1.0-SNAPSHOT.jar` 切到 `mavenLocal()` + `cc.mcstory:lm-core:1.1.0-SNAPSHOT`。
+- 关键决策：`LmVIP` 当前业务真源是自己的 `lmvip_*` 表和 LuckPerms group 同步，不新增 `PlayerStateHandle`；`/lmcore status` 中 `registered-handles=0` 属于预期。
+- 验证记录：`F:/mcplugins/LmCore-v2 mvn clean install -DskipTests` 通过；`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace` 通过；test-cell `cell-01` 临时部署 `LmCore-v2 + LuckPerms-Bukkit-5.4.145 + LmVIP` 后，`/lmcore status`、`/lmcore testdb LmVIP`、`/vipadmin season start codex-v2-resume-155012 CodexV2`、`/vipadmin points add zzzderk recharge 100 codex order-155012 smoke`、`/vipadmin info zzzderk` 均通过。
+- 数据库证据：`lmvip_seasons=1`、`lmvip_transactions=1`、`zzzderk total_points=100, vip_level=1`。
+- 收尾记录：已停止本轮 cell、释放 owner `codex-lmvip-v2-20260428-151941-22828`、删除临时 `LmVIP.jar/LuckPerms.jar`、恢复 `ops.json=[]`、删除 `lmvip_%` 表；`cell-01` 随后被其他 owner 租用，本轮不再触碰。
+- 下一步：正式测试服继续准备 `LmCore-v2` 对应的 `LmCore.jar`、LuckPerms 5.4.x 和 `database("LmVIP")` profile，再按 README 提测清单做运营奖励命令和 API 跨插件联调。
+
 ## 2026-04-28 15:50 +08:00 - 仓库整理与知识入口
 
 - 当前阶段：提测中，功能代码已收口，开始整理仓库知识入口。
