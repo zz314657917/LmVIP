@@ -48,6 +48,16 @@ class VipService(
         return snapshot
     }
 
+    fun cachedSnapshot(playerId: UUID): VipSnapshot? {
+        val cached = cache[playerId] ?: return null
+        val now = System.currentTimeMillis()
+        if (now - cached.createdAt > config.snapshotTtlMillis) {
+            cache.remove(playerId, cached)
+            return null
+        }
+        return cached.snapshot
+    }
+
     fun addRecharge(player: OfflinePlayer, amount: Long, source: String, orderId: String, operator: String, reason: String): TransactionWriteResult {
         require(amount > 0) { "amount must be positive" }
         val name = player.name ?: player.uniqueId.toString()

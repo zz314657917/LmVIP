@@ -1,5 +1,6 @@
 package cc.mcstory.lmvip
 
+import cc.mcstory.lmvip.api.LmVipApi
 import cc.mcstory.lmvip.config.VipRuntimeConfig
 import cc.mcstory.lmvip.integration.LuckPermsGroupSync
 import cc.mcstory.lmvip.service.RewardService
@@ -17,6 +18,8 @@ object LmVipServices {
         private set
     var vipService: VipService? = null
         private set
+    var api: LmVipApi? = null
+        private set
 
     val ready: Boolean
         get() = vipService != null
@@ -26,13 +29,15 @@ object LmVipServices {
         repository: JdbcVipRepository,
         groupSync: LuckPermsGroupSync,
         rewardService: RewardService,
-        vipService: VipService
+        vipService: VipService,
+        api: LmVipApi,
     ) {
         this.config = config
         this.repository = repository
         this.groupSync = groupSync
         this.rewardService = rewardService
         this.vipService = vipService
+        this.api = api
     }
 
     fun updateConfig(config: VipRuntimeConfig) {
@@ -57,5 +62,6 @@ object LmVipServices {
         groupSync = null
         rewardService = null
         vipService = null
+        api = null
     }
 }

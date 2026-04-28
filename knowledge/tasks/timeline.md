@@ -1,5 +1,15 @@
 # LmVIP 时间轴
 
+## 2026-04-28 15:45 +08:00 - 对外 API 增加
+
+- 当前阶段：提测中追加跨插件查询能力，仍保持业务实现稳定。
+- 本段重点：新增正式 Bukkit Services API `LmVipApi`，给其他插件查询 VIP 等级和跨周目累计充值积分。
+- 已完成：新增 `cc.mcstory.lmvip.api` 包；`LmVipPlugin` 启动时注册 `LmVipApi`，关闭时注销；`VipService` 增加 `cachedSnapshot`，缓存读取不触发数据库；README 增加 API 使用示例。
+- 关键决策：外部插件不要直接调用内部 `LmVipServices`；主线程只用 `getCachedVipLevel`、`getCachedTotalPoints`，需要查库时走 `getSnapshotAsync` 或 `refreshSnapshotAsync`。
+- 验证记录：`clean build --stacktrace` 通过；`build/libs/LmVIP.jar` 已包含 `cc/mcstory/lmvip/api/LmVipApi.class`、`VipApiSnapshot.class` 和 `BukkitLmVipApi.class`；新增 `VipApiSnapshotsTest` 覆盖 VIP 等级与累计充值字段映射。
+- 遗留问题：尚未在真实外部插件中通过 Bukkit `ServicesManager` 做跨插件联调。
+- 下一步：目标测试服准备依赖后，用测试插件调用 `LmVipApi#getCachedVipLevel`、`getCachedTotalPoints`、`getSnapshotAsync` 验证。
+
 ## 2026-04-28 15:12 +08:00 - Review 收口与提测归档
 
 - 当前阶段：LmVIP 已从实现收口进入提测中，测试包已构建，当前快照写入 `knowledge/tasks/current-task.md`。
