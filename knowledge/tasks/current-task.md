@@ -24,7 +24,7 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 ## 已确认事实
 
 - 构建产物：`F:/mcplugins/LmVIP/build/libs/LmVIP.jar`。
-- 功能代码基线：已包含 `LmVipApi` 对外 API，最新提交以 `git log` 为准。
+- 功能代码基线：`09e971d 新增 LmVIP 对外查询 API`。
 - 已在 Docker MySQL + test-cell 环境验证 LmCore profile `LmVIP` 可建表并执行核心链路。
 - 缺少 `LmCore` 或缺少 `LuckPerms` 时，Bukkit 会阻止加载 `LmVIP.jar` 并输出 `UnknownDependencyException`。
 - 本地 `F:/minecraft/server/paper-1.12.2` 当前缺少 LuckPerms，不适合直接作为 LmVIP 提测部署目标。
@@ -58,3 +58,4 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 - test-cell `cell-02`：已完成运行态验证，收尾时已释放，端口 `25575`、`38090`、`38091` 已关闭。
 - 依赖缺失验证：缺 `LmCore` 和缺 `LuckPerms` 均能阻止 LmVIP 加载并输出明确依赖错误。
 - API 构建验证：`LmVipApi`、`VipApiSnapshot`、`BukkitLmVipApi` 已打入 `build/libs/LmVIP.jar`。
+- 仓库知识入口：`knowledge/00-start-here.md`。
