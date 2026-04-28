@@ -39,6 +39,7 @@ taboolib {
 }
 
 repositories {
+    mavenLocal()
     mavenCentral()
 }
 
@@ -46,7 +47,7 @@ dependencies {
     compileOnly("ink.ptms.core:v12004:12004:mapped")
     compileOnly("ink.ptms.core:v12004:12004:universal")
     compileOnly(kotlin("stdlib"))
-    compileOnly(files("F:/mcplugins/LmCore/target/lm-core-1.1.0-SNAPSHOT.jar"))
+    compileOnly("cc.mcstory:lm-core:1.1.0-SNAPSHOT")
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
