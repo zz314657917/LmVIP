@@ -38,5 +38,36 @@ cache:
 
 reward:
   # 奖励命令从异步领取流程切回主线程执行时的等待超时，单位秒。
-  # 超时或命令返回失败时，会回滚本次领取记录，玩家可稍后重试。
+  # 超时或命令返回失败时，会把领取记录标记为 failed，并等待管理员 retry 或 reset。
   command-timeout-seconds: 5
+
+# LmCore ExecutionService 玩家可见反馈。
+# 只在 LmVIP 已确认成功的路径后执行：充值入账、VIP 等级变化、奖励领取成功、手动权益刷新成功。
+# GUI 展示、PlaceholderAPI、状态预览和失败/重复订单路径不会调用 ExecutionService。
+# steps 只允许 LmCore ExecutionService 支持的玩家可见动作：
+# [message], [broadcast]/[messageAll], [action]/[actionAll], [title]/[titleAll], [sound], [close], [delay]。
+# 这里不会执行控制台命令、OP、权限组、经验或跨服传送。
+execution-feedback:
+  enabled: true
+
+  recharge-success:
+    enabled: true
+    steps:
+      - "[message]&aVIP 续费到账，本次增加 &e{amount}&a 点，当前等级 &e{vip_level_name}&a。"
+      - "[actionbar]&aVIP 续费成功，当前 &e{vip_level_name}"
+
+  level-changed:
+    enabled: true
+    steps:
+      - "[title]&6VIP {vip_level_name}|&f等级已从 {previous_vip_level_name} 提升|10|50|10"
+      - "[sound]ENTITY_PLAYER_LEVELUP:1.0:1.0"
+
+  reward-claim-success:
+    enabled: true
+    steps:
+      - "[actionbar]&aVIP 奖励领取成功"
+
+  benefits-refresh-success:
+    enabled: false
+    steps:
+      - "[actionbar]&aVIP 权益已刷新：{vip_level_name}"

@@ -106,6 +106,27 @@ object VipConfigManager {
             snapshotTtlMillis = config.getLong("cache.snapshot-ttl-seconds", 30L) * 1000L,
             cacheRetainAfterQuitMillis = config.getLong("cache.retain-after-quit-seconds", 300L).coerceAtLeast(0L) * 1000L,
             rewardCommandTimeoutSeconds = config.getLong("reward.command-timeout-seconds", 5L).coerceAtLeast(1L),
+            executionFeedback = readExecutionFeedback(config),
+        )
+    }
+
+    private fun readExecutionFeedback(config: ConfigurationSection): ExecutionFeedbackConfig {
+        val root = "execution-feedback"
+        val reasons = listOf(
+            "recharge-success",
+            "level-changed",
+            "reward-claim-success",
+            "benefits-refresh-success"
+        )
+        val events = reasons.associateWith { reason ->
+            ExecutionFeedbackEvent(
+                enabled = config.getBoolean("$root.$reason.enabled", false),
+                steps = config.getStringList("$root.$reason.steps")
+            )
+        }
+        return ExecutionFeedbackConfig(
+            enabled = config.getBoolean("$root.enabled", true),
+            events = events
         )
     }
 

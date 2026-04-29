@@ -152,6 +152,17 @@ api.getSnapshotAsync(player.uniqueId, player.name).thenAccept { snapshot ->
 - `levels.yml`：VIP 等级门槛、LuckPerms group、福利说明、日/周/月/一次性奖励门槛和奖励命令。
 - `gui.yml`：GUI 标题、行数、槽位、材质和按钮名。
 
+## LmCore ExecutionService 玩家反馈
+
+`config.yml` 的 `execution-feedback` 会在真实成功路径后调用 LmCore-v2 `ExecutionService`，请求固定使用 `source=lmvip`，按动作拆分 `reason`：
+
+- `recharge-success`：充值流水成功写入、VIP 快照刷新和 LuckPerms 同步成功后触发。
+- `level-changed`：充值成功后根据新旧总累充计算出 VIP 等级变化时触发。
+- `reward-claim-success`：玩家 `/vip claim` 或 GUI 领奖成功、领取记录写为 `claimed` 后触发。
+- `benefits-refresh-success`：管理员 `/vipadmin sync` 成功刷新权益后触发，默认关闭。
+
+反馈步骤只允许 LmCore `ExecutionService` 支持的玩家可见动作，例如 `[message]`、`[actionbar]`、`[title]`、`[sound]`、`[broadcast]`、`[actionAll]`、`[titleAll]`、`[close]`、`[delay]`。这里不会接控制台命令、OP、权限组、经验或跨服传送；GUI 展示、PAPI、状态预览、失败领取、重复订单都不会调用 `execute(...)`。
+
 一次性 VIP 礼包按“每个玩家、每个 VIP 等级永久一次”记录，不随周目重置。配置示例：
 
 ```yaml
@@ -164,7 +175,7 @@ levels:
 
 日/周/月奖励领取记录带当前周目和周期 key。换周目后，日/周/月奖励会在新周目重新计算领取记录；once 礼包不会随周目刷新。
 
-奖励领取记录使用 `pending`、`claimed`、`failed` 状态。奖励命令发放失败或超时后，本次记录会标记为 `failed`，不会删除记录，也不会允许玩家重复领取，避免多条命令前半段成功后重复发奖。修正配置后，管理员可执行 `/vipadmin claims retry <player> <daily|weekly|monthly|once> [level]` 重试失败记录，或用 `/vipadmin claims reset <player> <daily|weekly|monthly|once> [level]` 清理 `failed/pending` 记录。
+奖励领取记录使用 `pending`、`claimed`、`failed` 状态。奖励命令发放失败或超时后，本次记录会标记为 `failed`，不会删除记录，也不会允许玩家重复领取。LmVIP 会记录每条奖励命令的发放状态，管理员执行 `/vipadmin claims retry <player> <daily|weekly|monthly|once> [level]` 时会跳过已经成功的命令，只续跑失败或未执行的同序号命令；不要在部分发放后重排已成功命令。`/vipadmin claims reset <player> <daily|weekly|monthly|once> [level]` 只清理 `failed/pending` 记录。
 
 奖励命令支持额外占位符：
 
@@ -174,7 +185,7 @@ levels:
 %dispatch_id%
 ```
 
-生产环境建议把真实礼包收口到单一奖励插件入口，并使用 `%claim_id%` 或 `%dispatch_id%` 做幂等。
+生产环境建议把真实礼包收口到单一奖励插件入口，并使用 `%claim_id%` 或 `%dispatch_id%` 做幂等。LmVIP 可以避免自身 retry 重放已成功命令，但无法感知外部插件在 `dispatchCommand` 返回成功后的异步失败。
 
 ## PlaceholderAPI 缓存
 
@@ -211,7 +222,7 @@ F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stackt
 7. 执行 `/vipadmin points rollback <transactionId> rollback-smoke`，确认积分归零、VIP group 降级或移除、`%lmvip_level%` 立即更新。
 8. 执行 `/vipadmin cache stats`、`/vipadmin cache clear 玩家名`、`/vipadmin cache warm 玩家名`，确认缓存统计、清理和预热正常。
 9. 高频执行 `/papi parse 玩家名 %lmvip_level%`、`%lmvip_total_points%`、`%lmvip_daily_claimed%`，确认刷新任务不会随解析次数线性增长。
-10. 配置一条多命令奖励并让后续命令失败，确认领取记录标记为 `failed`，玩家不能重复领取；修复配置后执行 `/vipadmin claims retry` 成功转为 `claimed`。
+10. 配置一条多命令奖励并让后续命令失败，确认领取记录标记为 `failed`，玩家不能重复领取；修复同序号失败命令后执行 `/vipadmin claims retry`，确认已成功命令不重放且最终转为 `claimed`。
 11. 删除 `levels.yml` 中默认 VIP3 后 `/vipadmin reload`，确认不会被默认示例补回。
 12. 配置 `sync.legacy-groups` 后执行 `/vipadmin sync 玩家名`，确认旧 VIP 组会被移除。
 13. 删除或缺失 `lang.yml`、必要配置 key 后重启或 `/vipadmin reload`，确认自动生成或补齐并产生 `.bak-时间戳`。

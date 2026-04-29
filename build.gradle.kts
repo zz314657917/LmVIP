@@ -51,6 +51,12 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("com.h2database:h2:2.2.224")
+    testImplementation("cc.mcstory:lm-core:1.1.0-SNAPSHOT")
+    testCompileOnly("ink.ptms.core:v12004:12004:mapped")
+    testCompileOnly("ink.ptms.core:v12004:12004:universal")
+    testRuntimeOnly("ink.ptms.core:v12004:12004:mapped")
+    testRuntimeOnly("ink.ptms.core:v12004:12004:universal")
 }
 
 tasks.withType<JavaCompile> {

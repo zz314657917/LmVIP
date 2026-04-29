@@ -1,6 +1,8 @@
 package cc.mcstory.lmvip.storage
 
 import cc.mcstory.lmvip.model.PointDimension
+import cc.mcstory.lmvip.model.ClaimCommandRecord
+import cc.mcstory.lmvip.model.ClaimCommandStatus
 import cc.mcstory.lmvip.model.ClaimDispatchStatus
 import cc.mcstory.lmvip.model.ClaimRecord
 import cc.mcstory.lmvip.model.ClaimWriteResult
@@ -10,6 +12,7 @@ import cc.mcstory.lmvip.model.TransactionWriteResult
 import cc.mcstory.lmvip.model.VipSnapshot
 import cc.mcstory.lmvip.service.VipCalculator
 import cc.mcstory.lmvip.time.PeriodService
+import cc.mcstory.lmvip.util.CommandHash
 import cc.mcstory.lmcore.api.DatabaseRegistryService
 import cc.mcstory.lmcore.api.DatabaseService
 import cc.mcstory.lmcore.api.LmCoreApi
@@ -114,6 +117,22 @@ class JdbcVipRepository(
                 ensureColumn(connection, "lmvip_claims", "failure_reason", "ALTER TABLE lmvip_claims ADD COLUMN failure_reason VARCHAR(255) NULL")
                 ensureColumn(connection, "lmvip_claims", "updated_at", "ALTER TABLE lmvip_claims ADD COLUMN updated_at BIGINT NOT NULL DEFAULT 0")
                 statement.executeUpdate("UPDATE lmvip_claims SET updated_at=claimed_at WHERE updated_at=0")
+                statement.executeUpdate(
+                    """
+                    CREATE TABLE IF NOT EXISTS lmvip_claim_commands (
+                        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        claim_id BIGINT NOT NULL,
+                        command_index INT NOT NULL,
+                        command_hash VARCHAR(64) NOT NULL,
+                        command_template VARCHAR(512) NOT NULL,
+                        status VARCHAR(16) NOT NULL DEFAULT 'pending',
+                        failure_reason VARCHAR(255) NULL,
+                        updated_at BIGINT NOT NULL,
+                        UNIQUE KEY uk_lmvip_claim_command (claim_id, command_index),
+                        INDEX idx_lmvip_claim_command_claim (claim_id)
+                    )
+                    """.trimIndent()
+                )
                 statement.executeUpdate(
                     """
                     CREATE TABLE IF NOT EXISTS lmvip_admin_audit (
@@ -365,47 +384,60 @@ class JdbcVipRepository(
         }
     }
 
-    fun beginClaim(playerId: UUID, playerName: String, seasonId: String, claimType: String, level: Int, periodKey: String): ClaimWriteResult {
+    fun beginClaim(
+        playerId: UUID,
+        playerName: String,
+        seasonId: String,
+        claimType: String,
+        level: Int,
+        periodKey: String,
+        commands: List<String> = emptyList(),
+    ): ClaimWriteResult {
         findClaim(playerId, seasonId, claimType, level, periodKey)?.let { return ClaimWriteResult.Existing(it) }
         database.getConnection().use { connection ->
-            connection.prepareStatement(
-                """
-                INSERT INTO lmvip_claims(
-                    player_uuid, player_name, season_id, claim_type, level, period_key,
-                    claimed_at, status, dispatch_id, failure_reason, updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
-                """.trimIndent(),
-                Statement.RETURN_GENERATED_KEYS
-            ).use {
-                val now = periods.nowMillis()
-                it.setString(1, playerId.toString())
-                it.setString(2, playerName)
-                it.setString(3, seasonId)
-                it.setString(4, claimType)
-                it.setInt(5, level)
-                it.setString(6, periodKey)
-                it.setLong(7, now)
-                it.setString(8, ClaimDispatchStatus.PENDING.dbKey)
-                it.setNull(9, Types.VARCHAR)
-                it.setNull(10, Types.VARCHAR)
-                it.setLong(11, now)
-                try {
+            connection.autoCommit = false
+            try {
+                connection.prepareStatement(
+                    """
+                    INSERT INTO lmvip_claims(
+                        player_uuid, player_name, season_id, claim_type, level, period_key,
+                        claimed_at, status, dispatch_id, failure_reason, updated_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                    """.trimIndent(),
+                    Statement.RETURN_GENERATED_KEYS
+                ).use {
+                    val now = periods.nowMillis()
+                    it.setString(1, playerId.toString())
+                    it.setString(2, playerName)
+                    it.setString(3, seasonId)
+                    it.setString(4, claimType)
+                    it.setInt(5, level)
+                    it.setString(6, periodKey)
+                    it.setLong(7, now)
+                    it.setString(8, ClaimDispatchStatus.PENDING.dbKey)
+                    it.setNull(9, Types.VARCHAR)
+                    it.setNull(10, Types.VARCHAR)
+                    it.setLong(11, now)
                     it.executeUpdate()
                     it.generatedKeys.use { keys ->
                         if (!keys.next()) throw SQLException("No generated claim id returned")
                         val id = keys.getLong(1)
                         val dispatchId = "claim-$id"
                         updateClaimDispatchId(connection, id, dispatchId)
+                        insertClaimCommands(connection, id, commands)
+                        connection.commit()
                         return ClaimWriteResult.Inserted(
                             ClaimRecord(id, playerId, playerName, seasonId, claimType, level, periodKey, ClaimDispatchStatus.PENDING, dispatchId, null)
                         )
                     }
-                } catch (_: SQLIntegrityConstraintViolationException) {
-                    return ClaimWriteResult.Existing(requireNotNull(findClaim(playerId, seasonId, claimType, level, periodKey)))
-                } catch (exception: SQLException) {
-                    Bukkit.getLogger().warning("[LmVIP] Failed to insert claim for $playerId $claimType/$periodKey: ${exception.message}")
-                    throw exception
                 }
+            } catch (_: SQLIntegrityConstraintViolationException) {
+                connection.rollback()
+                return ClaimWriteResult.Existing(requireNotNull(findClaim(playerId, seasonId, claimType, level, periodKey)))
+            } catch (exception: SQLException) {
+                connection.rollback()
+                Bukkit.getLogger().warning("[LmVIP] Failed to insert claim for $playerId $claimType/$periodKey: ${exception.message}")
+                throw exception
             }
         }
     }
@@ -422,18 +454,112 @@ class JdbcVipRepository(
         }
     }
 
-    fun deleteClaim(playerId: UUID, seasonId: String, claimType: String, level: Int, periodKey: String): Boolean {
+    fun listClaimCommands(claimId: Long): List<ClaimCommandRecord> {
+        database.getConnection().use { connection ->
+            connection.prepareStatement("SELECT * FROM lmvip_claim_commands WHERE claim_id=? ORDER BY command_index ASC").use {
+                it.setLong(1, claimId)
+                it.executeQuery().use { rs ->
+                    val commands = mutableListOf<ClaimCommandRecord>()
+                    while (rs.next()) {
+                        commands += readClaimCommand(rs)
+                    }
+                    return commands
+                }
+            }
+        }
+    }
+
+    fun updateClaimCommandStatus(
+        claimId: Long,
+        commandIndex: Int,
+        status: ClaimCommandStatus,
+        commandTemplate: String? = null,
+        failureReason: String? = null,
+    ): Boolean {
         database.getConnection().use { connection ->
             connection.prepareStatement(
-                "DELETE FROM lmvip_claims WHERE player_uuid=? AND season_id=? AND claim_type=? AND level=? AND period_key=?"
+                """
+                UPDATE lmvip_claim_commands
+                SET status=?,
+                    command_hash=COALESCE(?, command_hash),
+                    command_template=COALESCE(?, command_template),
+                    failure_reason=?,
+                    updated_at=?
+                WHERE claim_id=? AND command_index=?
+                """.trimIndent()
             ).use {
-                it.setString(1, playerId.toString())
-                it.setString(2, seasonId)
-                it.setString(3, claimType)
-                it.setInt(4, level)
-                it.setString(5, periodKey)
+                it.setString(1, status.dbKey)
+                if (commandTemplate == null) {
+                    it.setNull(2, Types.VARCHAR)
+                    it.setNull(3, Types.VARCHAR)
+                } else {
+                    it.setString(2, CommandHash.sha256(commandTemplate))
+                    it.setString(3, commandTemplate.take(512))
+                }
+                it.setString(4, failureReason?.take(255))
+                it.setLong(5, periods.nowMillis())
+                it.setLong(6, claimId)
+                it.setInt(7, commandIndex)
                 return it.executeUpdate() > 0
             }
+        }
+    }
+
+    fun deleteClaim(playerId: UUID, seasonId: String, claimType: String, level: Int, periodKey: String): Boolean {
+        database.getConnection().use { connection ->
+            connection.autoCommit = false
+            try {
+                val claimId = connection.prepareStatement(
+                    "SELECT id FROM lmvip_claims WHERE player_uuid=? AND season_id=? AND claim_type=? AND level=? AND period_key=?"
+                ).use {
+                    it.setString(1, playerId.toString())
+                    it.setString(2, seasonId)
+                    it.setString(3, claimType)
+                    it.setInt(4, level)
+                    it.setString(5, periodKey)
+                    it.executeQuery().use { rs -> if (rs.next()) rs.getLong("id") else null }
+                } ?: run {
+                    connection.rollback()
+                    return false
+                }
+                connection.prepareStatement("DELETE FROM lmvip_claim_commands WHERE claim_id=?").use {
+                    it.setLong(1, claimId)
+                    it.executeUpdate()
+                }
+                val deleted = connection.prepareStatement("DELETE FROM lmvip_claims WHERE id=?").use {
+                    it.setLong(1, claimId)
+                    it.executeUpdate() > 0
+                }
+                connection.commit()
+                return deleted
+            } catch (exception: SQLException) {
+                connection.rollback()
+                throw exception
+            }
+        }
+    }
+
+    private fun insertClaimCommands(connection: Connection, claimId: Long, commands: List<String>) {
+        if (commands.isEmpty()) return
+        connection.prepareStatement(
+            """
+            INSERT INTO lmvip_claim_commands(
+                claim_id, command_index, command_hash, command_template, status, failure_reason, updated_at
+            ) VALUES(?,?,?,?,?,?,?)
+            """.trimIndent()
+        ).use {
+            val now = periods.nowMillis()
+            commands.forEachIndexed { index, command ->
+                it.setLong(1, claimId)
+                it.setInt(2, index)
+                it.setString(3, CommandHash.sha256(command))
+                it.setString(4, command.take(512))
+                it.setString(5, ClaimCommandStatus.PENDING.dbKey)
+                it.setNull(6, Types.VARCHAR)
+                it.setLong(7, now)
+                it.addBatch()
+            }
+            it.executeBatch()
         }
     }
 
@@ -620,6 +746,18 @@ class JdbcVipRepository(
             periodKey = rs.getString("period_key"),
             status = ClaimDispatchStatus.parse(runCatching { rs.getString("status") }.getOrNull()),
             dispatchId = runCatching { rs.getString("dispatch_id") }.getOrNull(),
+            failureReason = runCatching { rs.getString("failure_reason") }.getOrNull(),
+        )
+    }
+
+    private fun readClaimCommand(rs: ResultSet): ClaimCommandRecord {
+        return ClaimCommandRecord(
+            id = rs.getLong("id"),
+            claimId = rs.getLong("claim_id"),
+            commandIndex = rs.getInt("command_index"),
+            commandHash = rs.getString("command_hash"),
+            commandTemplate = rs.getString("command_template"),
+            status = ClaimCommandStatus.parse(rs.getString("status")),
             failureReason = runCatching { rs.getString("failure_reason") }.getOrNull(),
         )
     }

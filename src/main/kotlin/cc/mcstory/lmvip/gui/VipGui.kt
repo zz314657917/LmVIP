@@ -3,6 +3,7 @@ package cc.mcstory.lmvip.gui
 import cc.mcstory.lmvip.LmVipServices
 import cc.mcstory.lmvip.config.GuiItemConfig
 import cc.mcstory.lmvip.config.VipConfigManager
+import cc.mcstory.lmvip.integration.LmCoreExecutionFeedback
 import cc.mcstory.lmvip.model.ClaimStatus
 import cc.mcstory.lmvip.model.ClaimType
 import cc.mcstory.lmvip.model.VipLevel
@@ -82,13 +83,26 @@ object VipGui {
         val service = LmVipServices.vipService ?: return
         BukkitTasks.async({
             val snapshot = service.snapshot(player, force = true)
-            service.rewards.claim(player, snapshot, type)
+            service.rewards.claim(player, snapshot, type) to snapshot
         }) { result ->
-            val operation = result.getOrElse {
+            val (operation, snapshot) = result.getOrElse {
                 player.sendMessage(LmVipServices.message("command.vip.claim-failed", "error" to it.message))
                 return@async
             }
             player.sendMessage((LmVipServices.config?.messagePrefix ?: "") + operation.message)
+            if (operation.success) {
+                LmCoreExecutionFeedback.dispatch(
+                    player,
+                    LmVipServices.config,
+                    LmCoreExecutionFeedback.REASON_REWARD_CLAIM_SUCCESS,
+                    snapshot,
+                    mapOf(
+                        "claim_type" to type.dbKey,
+                        "claim_level" to snapshot.vipLevel,
+                        "trace_id" to "gui-claim-${type.dbKey}-${System.currentTimeMillis()}"
+                    )
+                )
+            }
         }
     }
 
@@ -96,13 +110,26 @@ object VipGui {
         val service = LmVipServices.vipService ?: return
         BukkitTasks.async({
             val snapshot = service.snapshot(player, force = true)
-            service.rewards.claimOnce(player, snapshot, level)
+            service.rewards.claimOnce(player, snapshot, level) to snapshot
         }) { result ->
-            val operation = result.getOrElse {
+            val (operation, snapshot) = result.getOrElse {
                 player.sendMessage(LmVipServices.message("command.vip.claim-failed", "error" to it.message))
                 return@async
             }
             player.sendMessage((LmVipServices.config?.messagePrefix ?: "") + operation.message)
+            if (operation.success) {
+                LmCoreExecutionFeedback.dispatch(
+                    player,
+                    LmVipServices.config,
+                    LmCoreExecutionFeedback.REASON_REWARD_CLAIM_SUCCESS,
+                    snapshot,
+                    mapOf(
+                        "claim_type" to ClaimType.ONCE.dbKey,
+                        "claim_level" to level,
+                        "trace_id" to "gui-claim-once-$level-${System.currentTimeMillis()}"
+                    )
+                )
+            }
         }
     }
 

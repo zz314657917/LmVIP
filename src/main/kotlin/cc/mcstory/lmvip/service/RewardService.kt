@@ -3,6 +3,8 @@ package cc.mcstory.lmvip.service
 import cc.mcstory.lmvip.config.LanguageRuntimeConfig
 import cc.mcstory.lmvip.config.VipRuntimeConfig
 import cc.mcstory.lmvip.integration.LmVipPlaceholderExpansion
+import cc.mcstory.lmvip.model.ClaimCommandRecord
+import cc.mcstory.lmvip.model.ClaimCommandStatus
 import cc.mcstory.lmvip.model.ClaimDispatchStatus
 import cc.mcstory.lmvip.model.ClaimRecord
 import cc.mcstory.lmvip.model.ClaimStatus
@@ -12,6 +14,7 @@ import cc.mcstory.lmvip.model.OperationResult
 import cc.mcstory.lmvip.model.VipLevel
 import cc.mcstory.lmvip.model.VipSnapshot
 import cc.mcstory.lmvip.storage.JdbcVipRepository
+import cc.mcstory.lmvip.util.CommandHash
 import org.bukkit.Bukkit
 import org.bukkit.entity.Player
 import taboolib.platform.BukkitPlugin
@@ -40,9 +43,26 @@ data class RewardCommandContext(
     }
 }
 
+interface RewardCommandExecutor {
+    fun execute(context: RewardCommandContext, commandTemplate: String): Boolean
+}
+
+object BukkitRewardCommandExecutor : RewardCommandExecutor {
+    override fun execute(context: RewardCommandContext, commandTemplate: String): Boolean {
+        return Bukkit.dispatchCommand(Bukkit.getConsoleSender(), context.render(commandTemplate))
+    }
+}
+
+data class CommandDispatchOutcome(
+    val success: Boolean,
+    val message: String,
+)
+
 class RewardService(
     private var config: VipRuntimeConfig,
     private val repository: JdbcVipRepository,
+    private val commandExecutor: RewardCommandExecutor = BukkitRewardCommandExecutor,
+    private val serverThreadDispatcher: ((Long, () -> CommandDispatchOutcome) -> CommandDispatchOutcome)? = null,
 ) {
     companion object {
         const val ONCE_SEASON_ID = "__global__"
@@ -95,20 +115,21 @@ class RewardService(
             return OperationResult(false, status.reason)
         }
         val periodKey = periodKey(type)
-        val claim = when (val write = repository.beginClaim(player.uniqueId, player.name, seasonId, type.dbKey, level.level, periodKey)) {
-            is ClaimWriteResult.Inserted -> write.claim
-            is ClaimWriteResult.Existing -> return OperationResult(false, statusForClaim(write.claim).reason)
-        }
         val commands = when (type) {
             ClaimType.DAILY -> level.daily.commands
             ClaimType.WEEKLY -> level.weekly.commands
             ClaimType.MONTHLY -> level.monthly.commands
             ClaimType.ONCE -> level.once.commands
         }
+        val claim = when (val write = repository.beginClaim(player.uniqueId, player.name, seasonId, type.dbKey, level.level, periodKey, commands)) {
+            is ClaimWriteResult.Inserted -> write.claim
+            is ClaimWriteResult.Existing -> return OperationResult(false, statusForClaim(write.claim).reason)
+        }
         val context = RewardCommandContext(player.name, player.uniqueId, level.level, seasonId, claim.id, periodKey, claim.dispatchId ?: "")
-        if (!dispatchCommands(context, commands)) {
-            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, raw("reward.dispatch-failed"))
-            return OperationResult(false, raw("reward.dispatch-failed-rollback"))
+        val dispatch = dispatchCommands(context, claim.id, commands)
+        if (!dispatch.success) {
+            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, dispatch.message)
+            return OperationResult(false, dispatch.message)
         }
         repository.updateClaimStatus(claim.id, ClaimDispatchStatus.CLAIMED)
         LmVipPlaceholderExpansion.refresh(player.uniqueId, player.name)
@@ -131,14 +152,15 @@ class RewardService(
         if (!status.available || status.claimed) {
             return OperationResult(false, status.reason)
         }
-        val claim = when (val write = repository.beginClaim(player.uniqueId, player.name, ONCE_SEASON_ID, ClaimType.ONCE.dbKey, level.level, ONCE_PERIOD_KEY)) {
+        val claim = when (val write = repository.beginClaim(player.uniqueId, player.name, ONCE_SEASON_ID, ClaimType.ONCE.dbKey, level.level, ONCE_PERIOD_KEY, level.once.commands)) {
             is ClaimWriteResult.Inserted -> write.claim
             is ClaimWriteResult.Existing -> return OperationResult(false, statusForClaim(write.claim).reason)
         }
         val context = RewardCommandContext(player.name, player.uniqueId, level.level, snapshot.seasonId ?: ONCE_SEASON_ID, claim.id, ONCE_PERIOD_KEY, claim.dispatchId ?: "")
-        if (!dispatchCommands(context, level.once.commands)) {
-            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, raw("reward.dispatch-failed"))
-            return OperationResult(false, raw("reward.dispatch-failed-rollback"))
+        val dispatch = dispatchCommands(context, claim.id, level.once.commands)
+        if (!dispatch.success) {
+            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, dispatch.message)
+            return OperationResult(false, dispatch.message)
         }
         repository.updateClaimStatus(claim.id, ClaimDispatchStatus.CLAIMED)
         LmVipPlaceholderExpansion.refresh(player.uniqueId, player.name)
@@ -154,9 +176,10 @@ class RewardService(
         }
         repository.updateClaimStatus(claim.id, ClaimDispatchStatus.PENDING, null)
         val context = RewardCommandContext(playerName, playerId, target.level.level, target.seasonId, claim.id, target.periodKey, claim.dispatchId ?: "")
-        if (!dispatchCommands(context, target.commands)) {
-            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, raw("reward.dispatch-failed"))
-            return OperationResult(false, raw("reward.dispatch-failed"))
+        val dispatch = dispatchCommands(context, claim.id, target.commands)
+        if (!dispatch.success) {
+            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, dispatch.message)
+            return OperationResult(false, dispatch.message)
         }
         repository.updateClaimStatus(claim.id, ClaimDispatchStatus.CLAIMED)
         LmVipPlaceholderExpansion.refresh(playerId, playerName)
@@ -201,40 +224,71 @@ class RewardService(
         }
     }
 
-    private fun dispatchCommands(context: RewardCommandContext, commands: List<String>): Boolean {
-        if (commands.isEmpty()) return true
+    private fun dispatchCommands(context: RewardCommandContext, claimId: Long, commands: List<String>): CommandDispatchOutcome {
+        if (commands.isEmpty()) return CommandDispatchOutcome(true, raw("reward.claim-success"))
         val task = {
-            runCatching { runRewardCommands(context, commands) }.getOrElse {
-                Bukkit.getLogger().warning("[LmVIP] Reward command dispatch failed for ${context.playerName}: ${it.message}")
-                false
+            runCatching { runRewardCommands(context, claimId, commands) }.getOrElse {
+                warn("Reward command dispatch failed for ${context.playerName}: ${it.message}")
+                CommandDispatchOutcome(false, raw("reward.dispatch-failed"))
             }
         }
+        serverThreadDispatcher?.let { return it(config.rewardCommandTimeoutSeconds, task) }
         return if (Bukkit.isPrimaryThread()) {
             task()
         } else {
-            val future = CompletableFuture<Boolean>()
+            val future = CompletableFuture<CommandDispatchOutcome>()
             runCatching {
                 Bukkit.getScheduler().runTask(BukkitPlugin.getInstance(), Runnable {
                     future.complete(task())
                 })
                 future.get(config.rewardCommandTimeoutSeconds, TimeUnit.SECONDS)
             }.getOrElse {
-                Bukkit.getLogger().warning("[LmVIP] Reward command dispatch failed or timed out for ${context.playerName}: ${it.message}")
-                false
+                warn("Reward command dispatch failed or timed out for ${context.playerName}: ${it.message}")
+                CommandDispatchOutcome(false, raw("reward.dispatch-timeout"))
             }
         }
     }
 
-    private fun runRewardCommands(context: RewardCommandContext, commands: List<String>): Boolean {
-        var success = true
-        for (command in commands) {
+    private fun runRewardCommands(context: RewardCommandContext, claimId: Long, commands: List<String>): CommandDispatchOutcome {
+        val records = repository.listClaimCommands(claimId)
+        val validation = validateClaimCommands(records, commands)
+        if (!validation.success) return validation
+        for (record in records.sortedBy { it.commandIndex }) {
+            if (record.status == ClaimCommandStatus.SUCCEEDED) continue
+            val command = commands.getOrNull(record.commandIndex)
+                ?: return CommandDispatchOutcome(false, raw("reward.retry-command-changed"))
             val parsed = context.render(command)
-            if (!Bukkit.dispatchCommand(Bukkit.getConsoleSender(), parsed)) {
-                Bukkit.getLogger().warning("[LmVIP] Reward command returned false for ${context.playerName}: $parsed")
-                success = false
+            if (commandExecutor.execute(context, command)) {
+                repository.updateClaimCommandStatus(claimId, record.commandIndex, ClaimCommandStatus.SUCCEEDED, command)
+            } else {
+                warn("Reward command returned false for ${context.playerName}: $parsed")
+                repository.updateClaimCommandStatus(claimId, record.commandIndex, ClaimCommandStatus.FAILED, command, raw("reward.dispatch-failed"))
+                return CommandDispatchOutcome(false, raw("reward.dispatch-failed-rollback"))
             }
         }
-        return success
+        return CommandDispatchOutcome(true, raw("reward.claim-success"))
+    }
+
+    private fun validateClaimCommands(records: List<ClaimCommandRecord>, commands: List<String>): CommandDispatchOutcome {
+        if (records.isEmpty()) {
+            return CommandDispatchOutcome(false, raw("reward.retry-missing-command-state"))
+        }
+        if (records.size != commands.size) {
+            return CommandDispatchOutcome(false, raw("reward.retry-command-changed"))
+        }
+        val byIndex = records.associateBy { it.commandIndex }
+        for (index in commands.indices) {
+            val record = byIndex[index] ?: return CommandDispatchOutcome(false, raw("reward.retry-command-changed"))
+            val currentHash = CommandHash.sha256(commands[index])
+            if (record.status == ClaimCommandStatus.SUCCEEDED && !record.commandHash.equals(currentHash, true)) {
+                return CommandDispatchOutcome(false, raw("reward.retry-command-changed"))
+            }
+        }
+        return CommandDispatchOutcome(true, raw("reward.claim-success"))
+    }
+
+    private fun warn(message: String) {
+        runCatching { Bukkit.getLogger().warning("[LmVIP] $message") }
     }
 
     fun periodKey(type: ClaimType): String {

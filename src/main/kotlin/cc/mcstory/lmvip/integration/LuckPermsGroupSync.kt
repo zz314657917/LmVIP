@@ -8,11 +8,16 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
-class LuckPermsGroupSync(levels: List<VipLevel>, legacyGroups: List<String> = emptyList()) {
+class LuckPermsGroupSync(
+    levels: List<VipLevel>,
+    legacyGroups: List<String> = emptyList(),
+    private val apiProvider: (() -> Any?)? = null,
+    private val inheritanceNodeFactory: ((String) -> Any)? = null,
+) {
     private var groups = emptySet<String>()
     private var levelGroup = emptyMap<Int, String>()
     private var legacyGroupSet = emptySet<String>()
-    private val api: Any? by lazy { resolveApi() }
+    private val api: Any? by lazy { apiProvider?.invoke() ?: resolveApi() }
 
     init {
         updateLevels(levels, legacyGroups)
@@ -29,9 +34,13 @@ class LuckPermsGroupSync(levels: List<VipLevel>, legacyGroups: List<String> = em
     }
 
     fun sync(player: OfflinePlayer, vipLevel: Int): Boolean {
+        return sync(player.uniqueId, vipLevel)
+    }
+
+    fun sync(playerId: UUID, vipLevel: Int): Boolean {
         return try {
             val api = api ?: return false
-            val user = loadUser(api, player.uniqueId) ?: return false
+            val user = loadUser(api, playerId) ?: return false
             var changed = false
             for (node in getNodes(user).toList()) {
                 val key = readNodeKey(node)
@@ -54,7 +63,7 @@ class LuckPermsGroupSync(levels: List<VipLevel>, legacyGroups: List<String> = em
             }
             true
         } catch (exception: Exception) {
-            Bukkit.getLogger().warning("[LmVIP] LuckPerms sync failed for ${player.uniqueId}: ${exception.message}")
+            Bukkit.getLogger().warning("[LmVIP] LuckPerms sync failed for $playerId: ${exception.message}")
             false
         }
     }
@@ -104,6 +113,7 @@ class LuckPermsGroupSync(levels: List<VipLevel>, legacyGroups: List<String> = em
     }
 
     private fun buildInheritanceNode(group: String): Any {
+        inheritanceNodeFactory?.let { return it(group) }
         val nodeClass = Class.forName("net.luckperms.api.node.types.InheritanceNode")
         val builder = nodeClass.getMethod("builder", String::class.java).invoke(null, group)
         val build = builder.javaClass.methods.first { it.name == "build" && it.parameterTypes.isEmpty() }

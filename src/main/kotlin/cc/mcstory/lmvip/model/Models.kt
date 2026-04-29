@@ -96,6 +96,22 @@ enum class ClaimDispatchStatus {
     }
 }
 
+enum class ClaimCommandStatus {
+    PENDING,
+    SUCCEEDED,
+    FAILED;
+
+    val dbKey: String
+        get() = name.lowercase()
+
+    companion object {
+        fun parse(value: String?): ClaimCommandStatus {
+            if (value.isNullOrBlank()) return PENDING
+            return values().firstOrNull { it.name.equals(value, true) || it.dbKey.equals(value, true) } ?: PENDING
+        }
+    }
+}
+
 data class ClaimRecord(
     val id: Long,
     val playerId: UUID,
@@ -106,6 +122,16 @@ data class ClaimRecord(
     val periodKey: String,
     val status: ClaimDispatchStatus,
     val dispatchId: String?,
+    val failureReason: String?,
+)
+
+data class ClaimCommandRecord(
+    val id: Long,
+    val claimId: Long,
+    val commandIndex: Int,
+    val commandHash: String,
+    val commandTemplate: String,
+    val status: ClaimCommandStatus,
     val failureReason: String?,
 )
 

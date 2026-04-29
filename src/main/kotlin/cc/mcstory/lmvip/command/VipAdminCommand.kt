@@ -4,11 +4,13 @@ import cc.mcstory.lmvip.LmVipServices
 import cc.mcstory.lmvip.api.BukkitLmVipApi
 import cc.mcstory.lmvip.config.VipConfigManager
 import cc.mcstory.lmvip.integration.LmVipPlaceholderExpansion
+import cc.mcstory.lmvip.integration.LmCoreExecutionFeedback
 import cc.mcstory.lmvip.model.ClaimType
 import cc.mcstory.lmvip.model.PointDimension
 import cc.mcstory.lmvip.model.RollbackTransactionResult
 import cc.mcstory.lmvip.model.TransactionWriteResult
 import cc.mcstory.lmvip.util.BukkitTasks
+import cc.mcstory.lmvip.service.VipCalculator
 import org.bukkit.Bukkit
 import org.bukkit.OfflinePlayer
 import taboolib.common.platform.ProxyCommandSender
@@ -80,6 +82,16 @@ object VipAdminCommand {
                 BukkitTasks.async({ service.refreshAndSync(player) }) { result ->
                     val snapshot = result.getOrElse { return@async sender.sendMessage(msg("admin.sync-failed", "error" to it.message)) }
                     sender.sendMessage(msg("admin.sync-success", "player" to player.name, "level" to snapshot.vipLevel))
+                    LmCoreExecutionFeedback.dispatch(
+                        player.player,
+                        LmVipServices.config,
+                        LmCoreExecutionFeedback.REASON_BENEFITS_REFRESH_SUCCESS,
+                        snapshot,
+                        mapOf(
+                            "operator" to sender.name,
+                            "trace_id" to "sync-${System.currentTimeMillis()}"
+                        )
+                    )
                 }
             }
         }
@@ -208,7 +220,11 @@ object VipAdminCommand {
             val order = args.getOrNull(6) ?: return helpPoints(sender)
             val reason = args.getOrNull(7) ?: "recharge"
             BukkitTasks.async({ service.addRecharge(player, amount, source, order, operator, reason) }) { result ->
+                val writeResult = result.getOrNull()
                 sender.sendMessage(transactionMessage(raw("admin.transaction.label.recharge"), result, raw("admin.transaction.text.duplicate-or-failed")))
+                if (writeResult is TransactionWriteResult.Inserted) {
+                    dispatchRechargeFeedback(player, amount, source, order, operator, reason, writeResult.transactionId)
+                }
             }
             return
         }
@@ -327,6 +343,53 @@ object VipAdminCommand {
     }
 
     private fun offline(name: String): OfflinePlayer = Bukkit.getOfflinePlayer(name)
+
+    private fun dispatchRechargeFeedback(
+        player: OfflinePlayer,
+        amount: Long,
+        orderSource: String,
+        orderId: String,
+        operator: String,
+        operationReason: String,
+        transactionId: Long,
+    ) {
+        val online = player.player ?: return
+        val service = LmVipServices.vipService ?: return
+        val config = LmVipServices.config ?: return
+        val snapshot = service.cachedSnapshot(player.uniqueId) ?: return
+        val values = mapOf(
+            "amount" to amount,
+            "order_source" to orderSource,
+            "order_id" to orderId,
+            "operator" to operator,
+            "operation_reason" to operationReason,
+            "transaction_id" to transactionId,
+            "trace_id" to "transaction-$transactionId"
+        )
+        LmCoreExecutionFeedback.dispatch(
+            online,
+            config,
+            LmCoreExecutionFeedback.REASON_RECHARGE_SUCCESS,
+            snapshot,
+            values
+        )
+        val previousTotal = (snapshot.totalPoints - amount).coerceAtLeast(0L)
+        val previousLevel = VipCalculator.levelFor(previousTotal, config.levels)
+        val previousLevelNumber = previousLevel?.level ?: 0
+        if (previousLevelNumber != snapshot.vipLevel) {
+            LmCoreExecutionFeedback.dispatch(
+                online,
+                config,
+                LmCoreExecutionFeedback.REASON_LEVEL_CHANGED,
+                snapshot,
+                values + mapOf(
+                    "previous_total_points" to previousTotal,
+                    "previous_vip_level" to previousLevelNumber,
+                    "previous_vip_level_name" to (previousLevel?.plainName ?: "none")
+                )
+            )
+        }
+    }
 
     private fun requireArg(args: List<String>, index: Int, label: String): String {
         return args.getOrNull(index) ?: throw IllegalArgumentException("missing $label")

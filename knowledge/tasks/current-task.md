@@ -6,7 +6,9 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 
 ## 当前状态
 
-状态：生产前 P2 风险修复已完成本地实现、自动化测试、Docker MySQL + test-cell 运行态验证和环境清理，准备提交。
+状态：生产前 P2/P3 风险修复、LmCore-v2 `ExecutionService` 玩家可见反馈接入、知识归档和提交前验证已完成；当前可提交本轮整理结果。
+
+2026-04-29 追加：已完成 LmCore-v2 `ExecutionService` 玩家可见反馈的代码级接入与构建验证。反馈只在充值入账、VIP 等级变化、奖励领取成功、手动权益刷新成功后触发；失败、重复、GUI 展示、PAPI 和状态预览路径不调用 `execute(...)`。本轮未跑 test-cell 真实反馈 smoke。
 
 本轮只修 4 个自检 P2：奖励部分发放后重复领取风险、`levels.yml` 默认补齐污染、`refreshSnapshotAsync` 强制刷新语义、LuckPerms 旧组清理。没有新增 VIP 玩法，也没有修改 `LmVipApi` 公开方法签名。
 
@@ -18,11 +20,18 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 - `levels.yml` 已有文件不再自动补回默认 VIP 示例；缺字段只使用读取层默认值并写日志提示。
 - `getSnapshotAsync` 和 `refreshSnapshotAsync` 分离 in-flight；普通查询可复用 refresh，强制刷新不复用普通查询。
 - 新增 `sync.legacy-groups: []`；LuckPerms 同步会清理当前 VIP 组和 legacy 旧组。
+- 新增 `execution-feedback` 配置和 `LmCoreExecutionFeedback` 适配层；通过 Bukkit ServicesManager 反射发现 LmCore `ExecutionService`，请求固定 `source=lmvip` 并携带 `reason/traceId`。
+- 自检修复：恢复 `config.yml` 中被注释吞掉的 YAML key，确保 `reward.command-timeout-seconds` 和 `execution-feedback` 默认配置真实生效。
 
 ## 验证记录
 
 - `F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --stacktrace`：通过。
 - `F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace`：通过。
+- 2026-04-30 提交前复核：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --stacktrace`：通过。
+- 2026-04-30 提交前复核：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace`：通过，产物仍为 `build/libs/LmVIP.jar`。
+- `F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --tests cc.mcstory.lmvip.integration.LmCoreExecutionFeedbackTest --stacktrace`：通过。
+- `F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test`：通过。
+- `F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP build`：通过。
 - `git diff --check`：通过，仅有 Git LF/CRLF 提示。
 - Docker MySQL：`lmvip_claims` 自动迁移出 `status`、`dispatch_id`、`failure_reason`、`updated_at`。
 - test-cell：充值 100 后 `total/season/monthly/daily=100`，`vip_level=1`，LuckPerms 组同步到 `vip1`。

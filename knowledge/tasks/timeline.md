@@ -1,5 +1,22 @@
 # LmVIP 时间轴
 
+## 2026-04-30 00:10 +08:00 - Review P2/P3 整理提交前复核
+
+- 当前阶段：收口 review P2/P3 修复、LmCore-v2 `ExecutionService` 玩家反馈接入和知识文件更新，准备提交本轮整理结果。
+- 代码复核：奖励 retry 已改为命令级状态续发，旧 normal 快照写缓存受 generation 守卫保护，`config.yml` 旧回滚注释已修正，测试覆盖补到 RewardService/JDBC/cache/LuckPerms 路径。
+- LmCore 反馈复核：默认配置使用 `{amount}` / `{vip_level_name}` 交给 LmCore `ExpressionService` 渲染；LmVIP 额外兼容 `%amount%` 这类百分号占位符；`[actionbar]` 是 LmCore `ExecutionStep.parse` 支持的别名。
+- 验证记录：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --stacktrace` 通过；`clean build --stacktrace` 通过并重新产出 `build/libs/LmVIP.jar`；`git diff --check` 通过，仅有 LF/CRLF 提示。
+- 未覆盖：本次提交前未重新跑 test-cell 的 Execution 反馈真实玩家 smoke；该项仍留给正式测试服或下一轮运行态验证。
+
+## 2026-04-29 23:30 +08:00 - 接入 LmCore ExecutionService 玩家反馈
+
+- 当前阶段：在生产前 P2 修复基础上，补 LmCore-v2 `ExecutionService` 玩家可见反馈接入；不迁移奖励命令、LuckPerms 权限组或 VIP 业务状态到 LmCore 执行模块。
+- 本段重点：只在真实成功路径后触发反馈，包括充值入账、VIP 等级变化、奖励领取成功、手动权益刷新成功；GUI、PAPI、状态预览、失败领取和重复订单不调用 `execute(...)`。
+- 已完成：新增 `LmCoreExecutionFeedback` 反射适配层和 `execution-feedback` 配置；请求固定 `source=lmvip`，按事件区分 `reason`，并生成可追踪 `traceId`。
+- 自检修复：恢复 `config.yml` 中被注释吞掉的 YAML key，确保 `reward.command-timeout-seconds` 与 `execution-feedback` 默认配置真实存在。
+- 验证记录：`LmCoreExecutionFeedbackTest` 定向通过；`gradlew.bat -p F:/mcplugins/LmVIP test` 通过；`gradlew.bat -p F:/mcplugins/LmVIP build` 通过。
+- 未覆盖：尚未跑 test-cell 真实充值/领奖后的 Execution 反馈 smoke。
+
 ## 2026-04-29 16:20 +08:00 - 生产前 P2 修复提测收口
 
 - 当前阶段：4 个生产前 P2 风险已完成实现、自动化测试、Docker MySQL + test-cell 运行态验证和环境清理，准备提交。

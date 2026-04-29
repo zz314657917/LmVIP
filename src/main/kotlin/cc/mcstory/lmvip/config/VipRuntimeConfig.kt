@@ -14,6 +14,21 @@ data class VipRuntimeConfig(
     val snapshotTtlMillis: Long,
     val cacheRetainAfterQuitMillis: Long,
     val rewardCommandTimeoutSeconds: Long,
+    val executionFeedback: ExecutionFeedbackConfig,
+)
+
+data class ExecutionFeedbackConfig(
+    val enabled: Boolean,
+    val events: Map<String, ExecutionFeedbackEvent>,
+) {
+    fun event(reason: String): ExecutionFeedbackEvent {
+        return events[reason] ?: ExecutionFeedbackEvent(enabled = false, steps = emptyList())
+    }
+}
+
+data class ExecutionFeedbackEvent(
+    val enabled: Boolean,
+    val steps: List<String>,
 )
 
 data class LanguageRuntimeConfig(
