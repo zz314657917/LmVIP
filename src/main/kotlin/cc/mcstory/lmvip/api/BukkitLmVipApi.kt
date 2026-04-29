@@ -1,7 +1,6 @@
 package cc.mcstory.lmvip.api
 
 import cc.mcstory.lmvip.LmVipServices
-import cc.mcstory.lmvip.cache.SingleFlight
 import cc.mcstory.lmvip.service.VipService
 import org.bukkit.Bukkit
 import taboolib.platform.BukkitPlugin
@@ -11,7 +10,7 @@ import java.util.concurrent.CompletableFuture
 class BukkitLmVipApi(
     private val service: VipService,
 ) : LmVipApi {
-    private val inFlight = SingleFlight<UUID, VipApiSnapshot>()
+    private val inFlight = SnapshotLoadFlights<UUID, VipApiSnapshot>()
 
     override fun isReady(): Boolean {
         return LmVipServices.ready
@@ -50,7 +49,9 @@ class BukkitLmVipApi(
     }
 
     private fun loadAsync(playerId: UUID, playerName: String, force: Boolean): CompletableFuture<VipApiSnapshot> {
-        return inFlight.getOrStart(playerId) {
+        return if (force) inFlight.getOrStartRefresh(playerId) {
+            doLoadAsync(playerId, playerName, force)
+        } else inFlight.getOrStartNormal(playerId) {
             doLoadAsync(playerId, playerName, force)
         }
     }

@@ -16,11 +16,19 @@ messages:
     once-level-not-found: "VIP 等级不存在: %level%"
     once-not-reached: "未达到 %level_name%"
     already-claimed: "奖励已经领取"
-    dispatch-failed-rollback: "奖励发放失败，领取记录已回滚"
+    dispatch-failed: "奖励发放失败"
+    dispatch-failed-rollback: "奖励发放失败，领取记录已标记为失败，请联系管理员处理"
+    claim-not-found: "领取记录不存在"
+    claim-not-retryable: "领取记录不是失败状态，不能重试"
+    claim-not-resettable: "领取记录不是失败或处理中状态，不能重置"
+    retry-success: "奖励重试发放成功"
+    reset-success: "领取记录已重置"
     claim-success: "领取成功"
     once-claim-success: "已领取 %level_name% 一次性礼包"
     status:
       claimed: "已领取"
+      pending: "发放处理中"
+      failed: "发放失败: %error%"
       available: "可领取"
       # %current% 当前今日累充，%required% 所需今日累充。
       daily-not-enough: "今日累充不足: %current%/%required%"
@@ -48,6 +56,7 @@ messages:
       - "&6/vipadmin points season <add|take|set|reset> <player> <seasonId> [amount]"
       - "&6/vipadmin info <player> [seasonId]"
       - "&6/vipadmin cache <stats|clear|warm> [player]"
+      - "&6/vipadmin claims <retry|reset> <player> <daily|weekly|monthly|once> [level]"
 
     reload-success: "配置已重载"
     operation-failed: "操作失败: %error%"
@@ -110,6 +119,11 @@ messages:
       warm-success: "已预热 %player% 的缓存: VIP %level%"
       warm-failed: "预热 %player% 的缓存失败: %error%"
       unknown: "未知 cache 操作"
+
+    claims:
+      usage: "用法: /vipadmin claims <retry|reset> <player> <daily|weekly|monthly|once> [level]"
+      success: "%player% 领取记录处理完成: %message%"
+      failed: "领取记录处理失败: %error%"
 
   gui:
     read-failed: "无法读取 VIP 数据: %error%"

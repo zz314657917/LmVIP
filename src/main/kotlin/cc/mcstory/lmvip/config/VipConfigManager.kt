@@ -22,7 +22,7 @@ object VipConfigManager {
             val target = File(plugin.dataFolder, resource)
             if (!target.exists()) {
                 plugin.saveResource(resource, false)
-            } else {
+            } else if (ConfigDefaultMerger.shouldMergeExistingResource(resource)) {
                 mergeMissingDefaults(plugin, resource, target)
             }
         }
@@ -93,13 +93,14 @@ object VipConfigManager {
         val weekStart = runCatching {
             DayOfWeek.valueOf(config.getString("week-start", "MONDAY")!!.uppercase())
         }.getOrDefault(DayOfWeek.MONDAY)
-        val levels = readLevels(levelsConfig)
+        val levels = readLevels(levelsConfig, plugin)
         val language = readLanguage(langConfig, config.getString("message-prefix", "&6[LmVIP]&r ")!!)
         return VipRuntimeConfig(
             databaseProfile = config.getString("database-profile", "LmVIP")!!,
             messagePrefix = language.prefix,
             language = language,
             levels = levels,
+            legacyGroups = config.getStringList("sync.legacy-groups"),
             gui = readGui(guiConfig),
             periods = PeriodService(zone, weekStart),
             snapshotTtlMillis = config.getLong("cache.snapshot-ttl-seconds", 30L) * 1000L,
@@ -136,11 +137,12 @@ object VipConfigManager {
         )
     }
 
-    private fun readLevels(config: YamlConfiguration): List<VipLevel> {
+    private fun readLevels(config: YamlConfiguration, plugin: JavaPlugin): List<VipLevel> {
         val section = config.getConfigurationSection("levels") ?: return emptyList()
         return section.getKeys(false).mapNotNull { key ->
             val level = key.toIntOrNull() ?: return@mapNotNull null
             val path = "levels.$key"
+            warnMissingLevelKeys(config, plugin, path, level)
             VipLevel(
                 level = level,
                 name = color(config.getString("$path.name", "VIP$level")!!),
@@ -166,6 +168,26 @@ object VipConfigManager {
                 )
             )
         }.sortedBy { it.level }
+    }
+
+    private fun warnMissingLevelKeys(config: YamlConfiguration, plugin: JavaPlugin, path: String, level: Int) {
+        val keys = listOf(
+            "name",
+            "total-points",
+            "group",
+            "benefits",
+            "daily-reward.threshold",
+            "daily-reward.commands",
+            "weekly-reward.monthly-threshold",
+            "weekly-reward.commands",
+            "monthly-reward.threshold",
+            "monthly-reward.commands",
+            "once-reward.commands"
+        )
+        val missing = keys.filterNot { config.contains("$path.$it") }
+        if (missing.isNotEmpty()) {
+            plugin.logger.warning("[LmVIP] levels.yml VIP$level 缺失配置项，将使用读取层默认值: ${missing.joinToString(", ")}")
+        }
     }
 
     private fun readLanguage(config: YamlConfiguration, fallbackPrefix: String): LanguageRuntimeConfig {

@@ -24,7 +24,7 @@ object LmVipPlugin : Plugin() {
             val repository = JdbcVipRepository.fromLmCore(config.databaseProfile, config.periods)
             repository.initialize()
 
-            val groupSync = LuckPermsGroupSync(config.levels)
+            val groupSync = LuckPermsGroupSync(config.levels, config.legacyGroups)
             val rewardService = RewardService(config, repository)
             val vipService = VipService(config, repository, groupSync, rewardService)
             val api = BukkitLmVipApi(vipService)

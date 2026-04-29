@@ -3,8 +3,11 @@ package cc.mcstory.lmvip.service
 import cc.mcstory.lmvip.config.LanguageRuntimeConfig
 import cc.mcstory.lmvip.config.VipRuntimeConfig
 import cc.mcstory.lmvip.integration.LmVipPlaceholderExpansion
+import cc.mcstory.lmvip.model.ClaimDispatchStatus
+import cc.mcstory.lmvip.model.ClaimRecord
 import cc.mcstory.lmvip.model.ClaimStatus
 import cc.mcstory.lmvip.model.ClaimType
+import cc.mcstory.lmvip.model.ClaimWriteResult
 import cc.mcstory.lmvip.model.OperationResult
 import cc.mcstory.lmvip.model.VipLevel
 import cc.mcstory.lmvip.model.VipSnapshot
@@ -21,6 +24,9 @@ data class RewardCommandContext(
     val playerId: UUID,
     val level: Int,
     val seasonId: String,
+    val claimId: Long = 0L,
+    val periodKey: String = "",
+    val dispatchId: String = "",
 ) {
     fun render(command: String): String {
         return command
@@ -28,6 +34,9 @@ data class RewardCommandContext(
             .replace("%uuid%", playerId.toString())
             .replace("%level%", level.toString())
             .replace("%season%", seasonId)
+            .replace("%claim_id%", claimId.toString())
+            .replace("%period%", periodKey)
+            .replace("%dispatch_id%", dispatchId)
     }
 }
 
@@ -53,7 +62,7 @@ class RewardService(
         val level = config.levels.firstOrNull { it.level == snapshot.vipLevel }
             ?: return ClaimStatus(false, false, raw("reward.no-vip-level"))
         val periodKey = periodKey(type)
-        val claimed = repository.hasClaim(snapshot.playerId, seasonId, type.dbKey, level.level, periodKey)
+        repository.findClaim(snapshot.playerId, seasonId, type.dbKey, level.level, periodKey)?.let { return statusForClaim(it) }
         val available = when (type) {
             ClaimType.DAILY -> snapshot.dailyPoints >= level.daily.threshold
             ClaimType.WEEKLY -> snapshot.monthlyPoints >= level.weekly.threshold
@@ -67,12 +76,11 @@ class RewardService(
             ClaimType.ONCE -> 0L
         }
         val reason = when {
-            claimed -> raw("reward.status.claimed")
             available -> raw("reward.status.available")
             type == ClaimType.DAILY -> raw("reward.status.daily-not-enough", "current" to snapshot.dailyPoints, "required" to required)
             else -> raw("reward.status.monthly-not-enough", "current" to snapshot.monthlyPoints, "required" to required)
         }
-        return ClaimStatus(available, claimed, reason)
+        return ClaimStatus(available, false, reason)
     }
 
     fun claim(player: Player, snapshot: VipSnapshot, type: ClaimType): OperationResult {
@@ -87,8 +95,9 @@ class RewardService(
             return OperationResult(false, status.reason)
         }
         val periodKey = periodKey(type)
-        if (!repository.insertClaim(player.uniqueId, player.name, seasonId, type.dbKey, level.level, periodKey)) {
-            return OperationResult(false, raw("reward.already-claimed"))
+        val claim = when (val write = repository.beginClaim(player.uniqueId, player.name, seasonId, type.dbKey, level.level, periodKey)) {
+            is ClaimWriteResult.Inserted -> write.claim
+            is ClaimWriteResult.Existing -> return OperationResult(false, statusForClaim(write.claim).reason)
         }
         val commands = when (type) {
             ClaimType.DAILY -> level.daily.commands
@@ -96,11 +105,12 @@ class RewardService(
             ClaimType.MONTHLY -> level.monthly.commands
             ClaimType.ONCE -> level.once.commands
         }
-        val context = RewardCommandContext(player.name, player.uniqueId, level.level, seasonId)
+        val context = RewardCommandContext(player.name, player.uniqueId, level.level, seasonId, claim.id, periodKey, claim.dispatchId ?: "")
         if (!dispatchCommands(context, commands)) {
-            repository.deleteClaim(player.uniqueId, seasonId, type.dbKey, level.level, periodKey)
+            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, raw("reward.dispatch-failed"))
             return OperationResult(false, raw("reward.dispatch-failed-rollback"))
         }
+        repository.updateClaimStatus(claim.id, ClaimDispatchStatus.CLAIMED)
         LmVipPlaceholderExpansion.refresh(player.uniqueId, player.name)
         return OperationResult(true, raw("reward.claim-success"))
     }
@@ -108,8 +118,10 @@ class RewardService(
     fun onceStatus(snapshot: VipSnapshot, targetLevel: Int): ClaimStatus {
         val level = config.levels.firstOrNull { it.level == targetLevel }
             ?: return ClaimStatus(false, false, raw("reward.once-level-not-found", "level" to targetLevel))
-        val claimed = repository.hasClaim(snapshot.playerId, ONCE_SEASON_ID, ClaimType.ONCE.dbKey, level.level, ONCE_PERIOD_KEY)
-        return OnceRewardPolicy.status(snapshot.vipLevel, level, claimed, config.language)
+        repository.findClaim(snapshot.playerId, ONCE_SEASON_ID, ClaimType.ONCE.dbKey, level.level, ONCE_PERIOD_KEY)?.let {
+            return statusForClaim(it)
+        }
+        return OnceRewardPolicy.status(snapshot.vipLevel, level, claimed = false, config.language)
     }
 
     fun claimOnce(player: Player, snapshot: VipSnapshot, targetLevel: Int): OperationResult {
@@ -119,16 +131,74 @@ class RewardService(
         if (!status.available || status.claimed) {
             return OperationResult(false, status.reason)
         }
-        if (!repository.insertClaim(player.uniqueId, player.name, ONCE_SEASON_ID, ClaimType.ONCE.dbKey, level.level, ONCE_PERIOD_KEY)) {
-            return OperationResult(false, raw("reward.already-claimed"))
+        val claim = when (val write = repository.beginClaim(player.uniqueId, player.name, ONCE_SEASON_ID, ClaimType.ONCE.dbKey, level.level, ONCE_PERIOD_KEY)) {
+            is ClaimWriteResult.Inserted -> write.claim
+            is ClaimWriteResult.Existing -> return OperationResult(false, statusForClaim(write.claim).reason)
         }
-        val context = RewardCommandContext(player.name, player.uniqueId, level.level, snapshot.seasonId ?: ONCE_SEASON_ID)
+        val context = RewardCommandContext(player.name, player.uniqueId, level.level, snapshot.seasonId ?: ONCE_SEASON_ID, claim.id, ONCE_PERIOD_KEY, claim.dispatchId ?: "")
         if (!dispatchCommands(context, level.once.commands)) {
-            repository.deleteClaim(player.uniqueId, ONCE_SEASON_ID, ClaimType.ONCE.dbKey, level.level, ONCE_PERIOD_KEY)
+            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, raw("reward.dispatch-failed"))
             return OperationResult(false, raw("reward.dispatch-failed-rollback"))
         }
+        repository.updateClaimStatus(claim.id, ClaimDispatchStatus.CLAIMED)
         LmVipPlaceholderExpansion.refresh(player.uniqueId, player.name)
         return OperationResult(true, raw("reward.once-claim-success", "level" to level.level, "level_name" to level.plainName))
+    }
+
+    fun retryClaim(playerId: UUID, playerName: String, snapshot: VipSnapshot, type: ClaimType, targetLevel: Int? = null): OperationResult {
+        val target = claimTarget(snapshot, type, targetLevel) ?: return OperationResult(false, raw("reward.no-vip-level"))
+        val claim = repository.findClaim(playerId, target.seasonId, type.dbKey, target.level.level, target.periodKey)
+            ?: return OperationResult(false, raw("reward.claim-not-found"))
+        if (!ClaimDispatchPolicy.canRetry(claim.status)) {
+            return OperationResult(false, raw("reward.claim-not-retryable"))
+        }
+        repository.updateClaimStatus(claim.id, ClaimDispatchStatus.PENDING, null)
+        val context = RewardCommandContext(playerName, playerId, target.level.level, target.seasonId, claim.id, target.periodKey, claim.dispatchId ?: "")
+        if (!dispatchCommands(context, target.commands)) {
+            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, raw("reward.dispatch-failed"))
+            return OperationResult(false, raw("reward.dispatch-failed"))
+        }
+        repository.updateClaimStatus(claim.id, ClaimDispatchStatus.CLAIMED)
+        LmVipPlaceholderExpansion.refresh(playerId, playerName)
+        return OperationResult(true, raw("reward.retry-success"))
+    }
+
+    fun resetClaim(playerId: UUID, playerName: String, snapshot: VipSnapshot, type: ClaimType, targetLevel: Int? = null): OperationResult {
+        val target = claimTarget(snapshot, type, targetLevel) ?: return OperationResult(false, raw("reward.no-vip-level"))
+        val claim = repository.findClaim(playerId, target.seasonId, type.dbKey, target.level.level, target.periodKey)
+            ?: return OperationResult(false, raw("reward.claim-not-found"))
+        if (!ClaimDispatchPolicy.canReset(claim.status)) {
+            return OperationResult(false, raw("reward.claim-not-resettable"))
+        }
+        repository.deleteClaim(playerId, target.seasonId, type.dbKey, target.level.level, target.periodKey)
+        LmVipPlaceholderExpansion.refresh(playerId, playerName)
+        return OperationResult(true, raw("reward.reset-success"))
+    }
+
+    private fun claimTarget(snapshot: VipSnapshot, type: ClaimType, targetLevel: Int?): ClaimTarget? {
+        return if (type == ClaimType.ONCE) {
+            val level = config.levels.firstOrNull { it.level == (targetLevel ?: snapshot.vipLevel) } ?: return null
+            ClaimTarget(ONCE_SEASON_ID, ONCE_PERIOD_KEY, level, level.once.commands)
+        } else {
+            val seasonId = snapshot.seasonId ?: return null
+            val level = config.levels.firstOrNull { it.level == (targetLevel ?: snapshot.vipLevel) } ?: return null
+            val periodKey = periodKey(type)
+            val commands = when (type) {
+                ClaimType.DAILY -> level.daily.commands
+                ClaimType.WEEKLY -> level.weekly.commands
+                ClaimType.MONTHLY -> level.monthly.commands
+                ClaimType.ONCE -> level.once.commands
+            }
+            ClaimTarget(seasonId, periodKey, level, commands)
+        }
+    }
+
+    private fun statusForClaim(claim: ClaimRecord): ClaimStatus {
+        return when (claim.status) {
+            ClaimDispatchStatus.CLAIMED -> ClaimStatus(false, true, raw("reward.status.claimed"))
+            ClaimDispatchStatus.PENDING -> ClaimStatus(false, false, raw("reward.status.pending"))
+            ClaimDispatchStatus.FAILED -> ClaimStatus(false, false, raw("reward.status.failed", "error" to (claim.failureReason ?: "-")))
+        }
     }
 
     private fun dispatchCommands(context: RewardCommandContext, commands: List<String>): Boolean {
@@ -179,6 +249,13 @@ class RewardService(
     private fun raw(key: String, vararg placeholders: Pair<String, Any?>): String {
         return config.language.raw(key, *placeholders)
     }
+
+    private data class ClaimTarget(
+        val seasonId: String,
+        val periodKey: String,
+        val level: VipLevel,
+        val commands: List<String>,
+    )
 }
 
 object OnceRewardPolicy {

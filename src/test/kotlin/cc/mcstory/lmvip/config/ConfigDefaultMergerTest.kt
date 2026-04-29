@@ -9,6 +9,8 @@ class ConfigDefaultMergerTest {
     fun `missing leaf keys are detected without overwriting existing keys`() {
         val defaults = listOf(
             ConfigDefaultMerger.PathInfo("database-profile", false),
+            ConfigDefaultMerger.PathInfo("sync", true),
+            ConfigDefaultMerger.PathInfo("sync.legacy-groups", false),
             ConfigDefaultMerger.PathInfo("cache", true),
             ConfigDefaultMerger.PathInfo("cache.snapshot-ttl-seconds", false),
             ConfigDefaultMerger.PathInfo("cache.retain-after-quit-seconds", false),
@@ -18,8 +20,16 @@ class ConfigDefaultMergerTest {
         val existing = setOf("database-profile", "cache.snapshot-ttl-seconds")
 
         assertEquals(
-            listOf("cache.retain-after-quit-seconds", "reward.command-timeout-seconds"),
+            listOf("sync.legacy-groups", "cache.retain-after-quit-seconds", "reward.command-timeout-seconds"),
             ConfigDefaultMerger.missingLeafPaths(defaults, existing)
         )
+    }
+
+    @Test
+    fun `levels file is skipped when default merging existing resources`() {
+        assertEquals(false, ConfigDefaultMerger.shouldMergeExistingResource("levels.yml"))
+        assertEquals(true, ConfigDefaultMerger.shouldMergeExistingResource("config.yml"))
+        assertEquals(true, ConfigDefaultMerger.shouldMergeExistingResource("gui.yml"))
+        assertEquals(true, ConfigDefaultMerger.shouldMergeExistingResource("lang.yml"))
     }
 }

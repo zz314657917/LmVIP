@@ -13,4 +13,8 @@ object ConfigDefaultMerger {
             .map { it.path }
             .filterNot { existingPaths.contains(it) }
     }
+
+    fun shouldMergeExistingResource(resource: String): Boolean {
+        return !resource.equals("levels.yml", ignoreCase = true)
+    }
 }

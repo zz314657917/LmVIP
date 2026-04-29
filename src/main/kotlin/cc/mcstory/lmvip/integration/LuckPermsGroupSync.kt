@@ -8,18 +8,24 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
-class LuckPermsGroupSync(levels: List<VipLevel>) {
+class LuckPermsGroupSync(levels: List<VipLevel>, legacyGroups: List<String> = emptyList()) {
     private var groups = emptySet<String>()
     private var levelGroup = emptyMap<Int, String>()
-    private val api = resolveApi()
+    private var legacyGroupSet = emptySet<String>()
+    private val api: Any? by lazy { resolveApi() }
 
     init {
-        updateLevels(levels)
+        updateLevels(levels, legacyGroups)
     }
 
-    fun updateLevels(levels: List<VipLevel>) {
+    fun updateLevels(levels: List<VipLevel>, legacyGroups: List<String> = emptyList()) {
         groups = levels.map { it.group }.filter { it.isNotBlank() }.toSet()
         levelGroup = levels.associate { it.level to it.group }
+        this.legacyGroupSet = legacyGroups.filter { it.isNotBlank() }.toSet()
+    }
+
+    fun managedGroups(): Set<String> {
+        return groups + legacyGroupSet
     }
 
     fun sync(player: OfflinePlayer, vipLevel: Int): Boolean {
@@ -31,7 +37,7 @@ class LuckPermsGroupSync(levels: List<VipLevel>) {
                 val key = readNodeKey(node)
                 if (key.startsWith("group.", true)) {
                     val group = key.substringAfter("group.")
-                    if (groups.any { it.equals(group, true) }) {
+                    if (managedGroups().any { it.equals(group, true) }) {
                         invokeDataMutation(user, "remove", node)
                         changed = true
                     }

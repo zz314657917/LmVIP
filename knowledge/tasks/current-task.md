@@ -2,54 +2,45 @@
 
 ## 背景
 
-LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms，可选接入 PlaceholderAPI。当前版本已完成 review 修复、一次性 VIP 礼包、配置/语言文件自动补齐、`LmVipApi` 对外查询 API，并在 Docker MySQL + test-cell 中做过核心运行态提测。
+LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms，可选接入 PlaceholderAPI。当前版本已完成周目充值、永久 VIP、日/周/月/once 奖励、GUI、PAPI、`LmVipApi`、配置/lang 自动补齐、PAPI 高频缓存加固、以及生产前 P2 风险修复。
 
-## 当前目标
+## 当前状态
 
-状态：PAPI 高频缓存加固已完成，进入提交与后续正式服复测阶段。
+状态：生产前 P2 风险修复已完成本地实现、自动化测试、Docker MySQL + test-cell 运行态验证和环境清理，准备提交。
 
-本轮不新增 VIP 玩法，只加固单服缓存策略：PAPI 主线程永远只读内存，缓存过期返回旧值并合并异步刷新，无缓存返回空字符串并合并异步刷新；`LmVipApi#getSnapshotAsync` / `refreshSnapshotAsync` 同玩家 in-flight 查询合并。
+本轮只修 4 个自检 P2：奖励部分发放后重复领取风险、`levels.yml` 默认补齐污染、`refreshSnapshotAsync` 强制刷新语义、LuckPerms 旧组清理。没有新增 VIP 玩法，也没有修改 `LmVipApi` 公开方法签名。
 
 ## 本次已完成
 
-- 新增 `RefreshingValueCache` 与 `SingleFlight`，覆盖 PAPI 旧值优先、刷新去重、API in-flight 合并。
-- `/vipadmin cache stats|clear|warm` 已落地，`lang.yml` 与 README 已补说明。
-- 新增 `cache.retain-after-quit-seconds: 300`，默认配置带注释；缺失 key 会通过既有默认合并逻辑自动补齐。
-- `PlayerQuitEvent` 增加延迟缓存清理，默认玩家离线 300 秒后清理。
-- 修复运行态发现的 LuckPerms 反射问题：只选择零参数 `getNodes` / `getDistinctNodes` / `getOwnNodes`，避免误调用 `getNodes(NodeType)` 导致 `wrong number of arguments`。
-- test-cell 验证结束后已停止 cell、恢复 jar/config/ops，释放租约并删除 `lmvip_%` 测试表。
-
-## 已确认事实
-
-- 构建产物：`F:/mcplugins/LmVIP/build/libs/LmVIP.jar`。
-- 当前运行依赖：运行时插件名仍为 `LmCore` 与 `LuckPerms`；数据库仍走 LmCore profile `LmVIP`，不接入 LmCore PlayerState V2。
-- PAPI 缓存命令可用：`/vipadmin cache stats` 显示 PAPI 缓存数、刷新中、API 加载中、命中、未命中、旧值命中、刷新成功/失败、合并数和最近错误。
-- test-cell 中 500 次 `/papi parse zzzderk %lmvip_level%|%lmvip_total_points%|%lmvip_daily_claimed%` 后，缓存统计为命中 498、旧值命中 5、刷新成功 3、失败 0、合并 4，刷新任务没有随解析次数线性增长。
-- `/vipadmin cache clear zzzderk` 后首次 PAPI 返回空，`/vipadmin cache warm zzzderk` 可预热回 VIP 3。
-- 充值后 PAPI 返回 `3 / 1000 / false`；rollback 后 PAPI 返回 `0 / 0`，LuckPerms 父组从 `default + vip3` 回到仅 `default`。
-- 启动时缺失 `cache.retain-after-quit-seconds` 与旧 `lang.yml` cache 消息 key 会自动补齐并生成 `.bak-*`。
-
-## 待验证点
-
-- 未单独等待 300 秒验证玩家退出后的延迟缓存清理；本轮只验证了监听器编译、配置读取和缓存 clear/warm。
-- 正式服运营奖励命令仍需按真实礼包内容再验收。
-- LmCore-v2 自身测试编译缺类问题不属于 LmVIP，本轮只消费已安装的本地 Maven 依赖。
-
-## 当前结论
-
-可以交付 `F:/mcplugins/LmVIP/build/libs/LmVIP.jar` 进入正式测试服试跑。本轮已经把高频 PAPI 的主线程查库风险和重复异步刷新风险收口，并修复了运行态暴露的 LuckPerms 反射同步问题。
-
-## 下一步
-
-1. 提交本轮代码、README 和知识库更新。
-2. 在正式测试服部署当前 `LmVIP.jar`，按 README 提测清单复测真实奖励命令。
-3. 如果正式服 TAB/计分板刷新频率很高，持续观察 `/vipadmin cache stats` 中 `刷新中`、`API加载中`、`刷新失败` 和 `最近错误`。
+- 奖励领取记录改为 `pending` / `claimed` / `failed` 状态；失败或超时不再删除 claim，玩家不能重复领取。
+- 新增 `/vipadmin claims retry <player> <daily|weekly|monthly|once> [level]` 和 `/vipadmin claims reset <player> <daily|weekly|monthly|once> [level]`。
+- 奖励命令新增 `%claim_id%`、`%period%`、`%dispatch_id%`，用于外部奖励插件幂等。
+- `levels.yml` 已有文件不再自动补回默认 VIP 示例；缺字段只使用读取层默认值并写日志提示。
+- `getSnapshotAsync` 和 `refreshSnapshotAsync` 分离 in-flight；普通查询可复用 refresh，强制刷新不复用普通查询。
+- 新增 `sync.legacy-groups: []`；LuckPerms 同步会清理当前 VIP 组和 legacy 旧组。
 
 ## 验证记录
 
-- `F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --tests "cc.mcstory.lmvip.cache.*" --stacktrace`：通过。
 - `F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --stacktrace`：通过。
 - `F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace`：通过。
-- Docker dev-stack：MySQL `127.0.0.1:3307`、Redis `127.0.0.1:6380` 可用。
-- cell-01：临时部署 `LmCore-v2 + LuckPerms 5.4.145 + LmVIP`，完成 cache stats、clear、warm、500 次 PAPI parse、充值、rollback、LuckPerms group 降级验证。
-- 清理：cell-01 已释放，测试端口关闭，`LmVIP.jar` 和 `LuckPerms.jar` 已从 cell-01 插件目录移除，原 `LmCore.jar` / `lm-core-1.1.0-SNAPSHOT.jar` 已恢复，`ops.json` 已恢复为空，`lmvip_%` 测试表已删除。
+- `git diff --check`：通过，仅有 Git LF/CRLF 提示。
+- Docker MySQL：`lmvip_claims` 自动迁移出 `status`、`dispatch_id`、`failure_reason`、`updated_at`。
+- test-cell：充值 100 后 `total/season/monthly/daily=100`，`vip_level=1`，LuckPerms 组同步到 `vip1`。
+- test-cell：daily 奖励第二条命令故意失败后，claim 保留为 `failed`；重复 `/vip claim daily` 未再次执行第一条奖励命令。
+- test-cell：修复命令后 `/vipadmin claims retry zzzderk daily` 将 claim 从 `failed` 改为 `claimed`。
+- test-cell：weekly 奖励失败后 `/vipadmin claims reset zzzderk weekly` 清理 failed 记录。
+- test-cell：删除已有 `levels.yml` 中 VIP3 后 `/vipadmin reload` 未把默认 VIP3 写回。
+- test-cell：配置 `sync.legacy-groups: [vip_old]` 后，玩家同步前父组为 `default/vip1/vip_old`，执行 `/vipadmin sync zzzderk` 后只剩 `default/vip1`。
+- test-cell：`cell-01` 已停止并释放，端口关闭，临时插件文件/配置已恢复，`lmvip_%` 测试表已删除。
+
+## 已确认事实
+
+- 构建产物路径仍为 `F:/mcplugins/LmVIP/build/libs/LmVIP.jar`。
+- 运行时仍依赖 `LmCore` 插件名、`LuckPerms` 和 LmCore database profile `LmVIP`；本插件不接入 LmCore PlayerState V2。
+- `lmvip_claims` 旧领取记录默认按 `claimed` 兼容。
+- PAPI 高频缓存策略仍保持：主线程只读内存，过期返回旧值并合并刷新，无缓存返回空并合并刷新。
+
+## 剩余风险
+
+- 未单独等待默认 300 秒验证玩家退出后的延迟缓存清理；该点仍建议正式测试服长跑观察。
+- 正式服运营奖励命令建议使用单一奖励入口，并消费 `%claim_id%` 或 `%dispatch_id%` 做幂等；LmVIP 不尝试回滚外部插件已发出的物品或货币。

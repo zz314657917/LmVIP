@@ -24,7 +24,7 @@ class VipService(
     fun updateConfig(config: VipRuntimeConfig) {
         this.config = config
         repository.updatePeriods(config.periods)
-        groupSync.updateLevels(config.levels)
+        groupSync.updateLevels(config.levels, config.legacyGroups)
         rewards.updateConfig(config)
         cache.clear()
         LmVipPlaceholderExpansion.clear()

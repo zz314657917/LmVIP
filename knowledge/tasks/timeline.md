@@ -1,5 +1,25 @@
 # LmVIP 时间轴
 
+## 2026-04-29 16:20 +08:00 - 生产前 P2 修复提测收口
+
+- 当前阶段：4 个生产前 P2 风险已完成实现、自动化测试、Docker MySQL + test-cell 运行态验证和环境清理，准备提交。
+- 运行态验证：`lmvip_claims` 自动迁移出 `status/dispatch_id/failure_reason/updated_at`；充值 100 后 `total/season/monthly/daily=100` 且 `vip_level=1`；LuckPerms 同步到 `vip1`。
+- 运行态验证：daily 奖励第二条命令故意失败后 claim 保留为 `failed`，重复领取被阻止且未再次执行第一条奖励命令；修复配置后 `/vipadmin claims retry zzzderk daily` 将状态改为 `claimed`。
+- 运行态验证：weekly 奖励失败后 `/vipadmin claims reset zzzderk weekly` 清理 failed 记录；删除已有 `levels.yml` 中 VIP3 后 reload 未把默认 VIP3 写回。
+- 运行态验证：配置 `sync.legacy-groups: [vip_old]` 后，玩家父组从 `default/vip1/vip_old` 经 `/vipadmin sync zzzderk` 变为 `default/vip1`。
+- 验证命令：`clean build --stacktrace` 通过，`git diff --check` 通过，仅有 Git LF/CRLF 提示。
+- 收尾记录：`cell-01` 已停止并释放，端口关闭，临时插件文件/配置已恢复，`lmvip_%` 测试表已删除。
+- 遗留风险：未单独等待默认 300 秒验证玩家退出后的延迟缓存清理；正式服奖励命令仍建议用 `%claim_id%` 或 `%dispatch_id%` 做外部幂等。
+
+## 2026-04-29 15:10 +08:00 - 生产前 P2 风险修复
+
+- 当前阶段：`LmVIP` 进入生产前 P2 风险修复收口，目标是把自检发现的 4 个非阻塞风险变成可长跑测试服版本。
+- 本段重点：奖励 claim 状态化、`levels.yml` 默认补齐策略收紧、API 强制刷新 in-flight 分离、LuckPerms legacy 旧组清理。
+- 已完成：`lmvip_claims` 增加 `pending/claimed/failed` 语义和 `dispatch_id/failure_reason/updated_at` 迁移；新增 `/vipadmin claims retry|reset`；奖励命令支持 `%claim_id%`、`%period%`、`%dispatch_id%`。
+- 已完成：已有 `levels.yml` 不再被默认 VIP 示例反向补齐；`sync.legacy-groups` 写入默认配置并参与 LuckPerms 清理；`refreshSnapshotAsync` 不再复用普通查询 in-flight。
+- 验证记录：新增红灯测试先因缺失 `ClaimDispatchStatus`、`SnapshotLoadFlights`、`shouldMergeExistingResource`、`legacyGroups` 等接口失败，补实现后目标测试通过；完整 `test --stacktrace` 通过。
+- 待验证：仍需 test-cell 跑真实 MySQL 迁移、多命令奖励失败、`claims retry/reset`、`levels.yml` 不补默认等级、legacy 旧组移除。
+
 ## 2026-04-28 20:40 +08:00 - PAPI 高频缓存加固
 
 - 当前阶段：`LmVIP` 完成单服高频 PAPI 缓存加固，可以提交当前测试包。

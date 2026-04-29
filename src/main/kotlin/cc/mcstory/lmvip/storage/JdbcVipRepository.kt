@@ -1,6 +1,9 @@
 package cc.mcstory.lmvip.storage
 
 import cc.mcstory.lmvip.model.PointDimension
+import cc.mcstory.lmvip.model.ClaimDispatchStatus
+import cc.mcstory.lmvip.model.ClaimRecord
+import cc.mcstory.lmvip.model.ClaimWriteResult
 import cc.mcstory.lmvip.model.RollbackTransactionResult
 import cc.mcstory.lmvip.model.SeasonRecord
 import cc.mcstory.lmvip.model.TransactionWriteResult
@@ -106,6 +109,11 @@ class JdbcVipRepository(
                     )
                     """.trimIndent()
                 )
+                ensureColumn(connection, "lmvip_claims", "status", "ALTER TABLE lmvip_claims ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'claimed'")
+                ensureColumn(connection, "lmvip_claims", "dispatch_id", "ALTER TABLE lmvip_claims ADD COLUMN dispatch_id VARCHAR(128) NULL")
+                ensureColumn(connection, "lmvip_claims", "failure_reason", "ALTER TABLE lmvip_claims ADD COLUMN failure_reason VARCHAR(255) NULL")
+                ensureColumn(connection, "lmvip_claims", "updated_at", "ALTER TABLE lmvip_claims ADD COLUMN updated_at BIGINT NOT NULL DEFAULT 0")
+                statement.executeUpdate("UPDATE lmvip_claims SET updated_at=claimed_at WHERE updated_at=0")
                 statement.executeUpdate(
                     """
                     CREATE TABLE IF NOT EXISTS lmvip_admin_audit (
@@ -337,40 +345,79 @@ class JdbcVipRepository(
     }
 
     fun hasClaim(playerId: UUID, seasonId: String, claimType: String, level: Int, periodKey: String): Boolean {
+        return findClaim(playerId, seasonId, claimType, level, periodKey) != null
+    }
+
+    fun findClaim(playerId: UUID, seasonId: String, claimType: String, level: Int, periodKey: String): ClaimRecord? {
         database.getConnection().use { connection ->
             connection.prepareStatement(
-                "SELECT id FROM lmvip_claims WHERE player_uuid=? AND season_id=? AND claim_type=? AND level=? AND period_key=?"
+                "SELECT * FROM lmvip_claims WHERE player_uuid=? AND season_id=? AND claim_type=? AND level=? AND period_key=?"
             ).use {
                 it.setString(1, playerId.toString())
                 it.setString(2, seasonId)
                 it.setString(3, claimType)
                 it.setInt(4, level)
                 it.setString(5, periodKey)
-                it.executeQuery().use { rs -> return rs.next() }
+                it.executeQuery().use { rs ->
+                    return if (rs.next()) readClaim(rs) else null
+                }
             }
         }
     }
 
-    fun insertClaim(playerId: UUID, playerName: String, seasonId: String, claimType: String, level: Int, periodKey: String): Boolean {
+    fun beginClaim(playerId: UUID, playerName: String, seasonId: String, claimType: String, level: Int, periodKey: String): ClaimWriteResult {
+        findClaim(playerId, seasonId, claimType, level, periodKey)?.let { return ClaimWriteResult.Existing(it) }
         database.getConnection().use { connection ->
             connection.prepareStatement(
-                "INSERT INTO lmvip_claims(player_uuid, player_name, season_id, claim_type, level, period_key, claimed_at) VALUES(?,?,?,?,?,?,?)"
+                """
+                INSERT INTO lmvip_claims(
+                    player_uuid, player_name, season_id, claim_type, level, period_key,
+                    claimed_at, status, dispatch_id, failure_reason, updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                """.trimIndent(),
+                Statement.RETURN_GENERATED_KEYS
             ).use {
+                val now = periods.nowMillis()
                 it.setString(1, playerId.toString())
                 it.setString(2, playerName)
                 it.setString(3, seasonId)
                 it.setString(4, claimType)
                 it.setInt(5, level)
                 it.setString(6, periodKey)
-                it.setLong(7, periods.nowMillis())
-                return try {
-                    it.executeUpdate() > 0
+                it.setLong(7, now)
+                it.setString(8, ClaimDispatchStatus.PENDING.dbKey)
+                it.setNull(9, Types.VARCHAR)
+                it.setNull(10, Types.VARCHAR)
+                it.setLong(11, now)
+                try {
+                    it.executeUpdate()
+                    it.generatedKeys.use { keys ->
+                        if (!keys.next()) throw SQLException("No generated claim id returned")
+                        val id = keys.getLong(1)
+                        val dispatchId = "claim-$id"
+                        updateClaimDispatchId(connection, id, dispatchId)
+                        return ClaimWriteResult.Inserted(
+                            ClaimRecord(id, playerId, playerName, seasonId, claimType, level, periodKey, ClaimDispatchStatus.PENDING, dispatchId, null)
+                        )
+                    }
                 } catch (_: SQLIntegrityConstraintViolationException) {
-                    false
+                    return ClaimWriteResult.Existing(requireNotNull(findClaim(playerId, seasonId, claimType, level, periodKey)))
                 } catch (exception: SQLException) {
                     Bukkit.getLogger().warning("[LmVIP] Failed to insert claim for $playerId $claimType/$periodKey: ${exception.message}")
                     throw exception
                 }
+            }
+        }
+    }
+
+    fun updateClaimStatus(claimId: Long, status: ClaimDispatchStatus, failureReason: String? = null): Boolean {
+        database.getConnection().use { connection ->
+            connection.prepareStatement("UPDATE lmvip_claims SET status=?, failure_reason=?, updated_at=? WHERE id=?").use {
+                it.setString(1, status.dbKey)
+                it.setString(2, failureReason?.take(255))
+                it.setLong(3, periods.nowMillis())
+                it.setLong(4, claimId)
+                return it.executeUpdate() > 0
             }
         }
     }
@@ -388,6 +435,30 @@ class JdbcVipRepository(
                 return it.executeUpdate() > 0
             }
         }
+    }
+
+    private fun updateClaimDispatchId(connection: Connection, claimId: Long, dispatchId: String) {
+        connection.prepareStatement("UPDATE lmvip_claims SET dispatch_id=?, updated_at=? WHERE id=?").use {
+            it.setString(1, dispatchId)
+            it.setLong(2, periods.nowMillis())
+            it.setLong(3, claimId)
+            it.executeUpdate()
+        }
+    }
+
+    private fun ensureColumn(connection: Connection, table: String, column: String, ddl: String) {
+        val metadata = connection.metaData
+        metadata.getColumns(connection.catalog, null, table, null).use { columns ->
+            while (columns.next()) {
+                if (columns.getString("COLUMN_NAME").equals(column, true)) return
+            }
+        }
+        metadata.getColumns(connection.catalog, null, table.uppercase(), null).use { columns ->
+            while (columns.next()) {
+                if (columns.getString("COLUMN_NAME").equals(column, true)) return
+            }
+        }
+        connection.createStatement().use { it.executeUpdate(ddl) }
     }
 
     private fun findSeason(seasonId: String): SeasonRecord? {
@@ -535,6 +606,21 @@ class JdbcVipRepository(
             active = rs.getInt("active") == 1,
             startedAt = rs.getLong("started_at"),
             endedAt = ended,
+        )
+    }
+
+    private fun readClaim(rs: ResultSet): ClaimRecord {
+        return ClaimRecord(
+            id = rs.getLong("id"),
+            playerId = UUID.fromString(rs.getString("player_uuid")),
+            playerName = rs.getString("player_name"),
+            seasonId = rs.getString("season_id"),
+            claimType = rs.getString("claim_type"),
+            level = rs.getInt("level"),
+            periodKey = rs.getString("period_key"),
+            status = ClaimDispatchStatus.parse(runCatching { rs.getString("status") }.getOrNull()),
+            dispatchId = runCatching { rs.getString("dispatch_id") }.getOrNull(),
+            failureReason = runCatching { rs.getString("failure_reason") }.getOrNull(),
         )
     }
 

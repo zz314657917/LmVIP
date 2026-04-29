@@ -80,6 +80,40 @@ data class ClaimStatus(
     val reason: String,
 )
 
+enum class ClaimDispatchStatus {
+    PENDING,
+    CLAIMED,
+    FAILED;
+
+    val dbKey: String
+        get() = name.lowercase()
+
+    companion object {
+        fun parse(value: String?): ClaimDispatchStatus {
+            if (value.isNullOrBlank()) return CLAIMED
+            return values().firstOrNull { it.name.equals(value, true) || it.dbKey.equals(value, true) } ?: CLAIMED
+        }
+    }
+}
+
+data class ClaimRecord(
+    val id: Long,
+    val playerId: UUID,
+    val playerName: String,
+    val seasonId: String,
+    val claimType: String,
+    val level: Int,
+    val periodKey: String,
+    val status: ClaimDispatchStatus,
+    val dispatchId: String?,
+    val failureReason: String?,
+)
+
+sealed class ClaimWriteResult {
+    data class Inserted(val claim: ClaimRecord) : ClaimWriteResult()
+    data class Existing(val claim: ClaimRecord) : ClaimWriteResult()
+}
+
 data class OperationResult(
     val success: Boolean,
     val message: String,

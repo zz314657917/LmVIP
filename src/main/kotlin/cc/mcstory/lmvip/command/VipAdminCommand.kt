@@ -4,6 +4,7 @@ import cc.mcstory.lmvip.LmVipServices
 import cc.mcstory.lmvip.api.BukkitLmVipApi
 import cc.mcstory.lmvip.config.VipConfigManager
 import cc.mcstory.lmvip.integration.LmVipPlaceholderExpansion
+import cc.mcstory.lmvip.model.ClaimType
 import cc.mcstory.lmvip.model.PointDimension
 import cc.mcstory.lmvip.model.RollbackTransactionResult
 import cc.mcstory.lmvip.model.TransactionWriteResult
@@ -113,6 +114,20 @@ object VipAdminCommand {
                 execute<ProxyCommandSender> { sender, context, _ -> handleCache(sender, context.args().toList()) }
             }
             execute<ProxyCommandSender> { sender, context, _ -> handleCache(sender, context.args().toList()) }
+        }
+    }
+
+    @CommandBody
+    val claims = subCommand {
+        dynamic(comment = "action") {
+            dynamic(comment = "player") {
+                dynamic(comment = "type") {
+                    dynamic(comment = "level", optional = true) {
+                        execute<ProxyCommandSender> { sender, context, _ -> handleClaims(sender, context.args().toList()) }
+                    }
+                    execute<ProxyCommandSender> { sender, context, _ -> handleClaims(sender, context.args().toList()) }
+                }
+            }
         }
     }
 
@@ -279,6 +294,35 @@ object VipAdminCommand {
             }
             null -> sender.sendMessage(msg("admin.cache.usage"))
             else -> sender.sendMessage(msg("admin.cache.unknown"))
+        }
+    }
+
+    private fun handleClaims(sender: ProxyCommandSender, args: List<String>) {
+        val service = LmVipServices.vipService ?: return sender.sendMessage(msg("common.not-ready"))
+        val action = args.getOrNull(1)?.lowercase() ?: return sender.sendMessage(msg("admin.claims.usage"))
+        val playerName = args.getOrNull(2) ?: return sender.sendMessage(msg("admin.claims.usage"))
+        val type = ClaimType.parse(args.getOrNull(3) ?: "") ?: return sender.sendMessage(msg("admin.claims.usage"))
+        val level = args.getOrNull(4)?.toIntOrNull()
+        val player = offline(playerName)
+        val name = player.name ?: playerName
+        BukkitTasks.async({
+            val snapshot = service.snapshot(player.uniqueId, name, force = true)
+            when (action) {
+                "retry" -> service.rewards.retryClaim(player.uniqueId, name, snapshot, type, level)
+                "reset" -> service.rewards.resetClaim(player.uniqueId, name, snapshot, type, level)
+                else -> null
+            }
+        }) { result ->
+            val operation = result.getOrElse {
+                return@async sender.sendMessage(msg("admin.claims.failed", "error" to (it.message ?: it.javaClass.simpleName)))
+            } ?: return@async sender.sendMessage(msg("admin.claims.usage"))
+            sender.sendMessage(
+                if (operation.success) {
+                    msg("admin.claims.success", "player" to playerName, "message" to operation.message)
+                } else {
+                    msg("admin.claims.failed", "error" to operation.message)
+                }
+            )
         }
     }
 

@@ -31,6 +31,10 @@ class SingleFlight<K, V> {
         }
     }
 
+    fun current(key: K): CompletableFuture<V>? {
+        return inFlight[key]
+    }
+
     fun clear(key: K) {
         inFlight.remove(key)
     }

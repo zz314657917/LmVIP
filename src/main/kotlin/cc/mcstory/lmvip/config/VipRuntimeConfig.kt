@@ -8,6 +8,7 @@ data class VipRuntimeConfig(
     val messagePrefix: String,
     val language: LanguageRuntimeConfig,
     val levels: List<VipLevel>,
+    val legacyGroups: List<String>,
     val gui: GuiRuntimeConfig,
     val periods: PeriodService,
     val snapshotTtlMillis: Long,
