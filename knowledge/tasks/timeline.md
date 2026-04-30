@@ -1,5 +1,25 @@
 # LmVIP 时间轴
 
+## 2026-04-30 13:08 +08:00 - Review findings 收口
+
+- 当前阶段：提交/提测前继续收口 3 个 review findings，目标是降低奖励 timeout 状态不一致和生命周期边界风险。
+- 本段重点：奖励命令迟到执行门闸、`BukkitTasks.async` callback 兜底、`refreshAndSync` 主线程误用保护。
+- 已完成：`RewardService` 在异步等待超时时取消 future 并先把 claim 标记为 failed；主线程任务开始和每条未完成命令执行前都会检查 claim 是否仍为 `pending`，非 pending 时跳过后续命令。
+- 已完成：`BukkitTasks.async` 抽出可测调度核心，async 或 callback 调度被拒绝时会记录并回传 `Result`，不再静默丢失 callback。
+- 已完成：`VipService.refreshAndSync` 增加主线程检查，避免 LuckPerms `loadUser/saveUser` 的阻塞等待被误放到主线程。
+- 验证记录：先补红灯测试，随后目标测试通过；完整 `test --stacktrace --rerun-tasks` 通过，51 tests / 0 failures / 0 errors / 0 skipped；`clean build --stacktrace` 通过并产出 `build/libs/LmVIP.jar`。
+- 遗留问题：单条 Bukkit 奖励命令如果自身已经开始执行且内部长时间阻塞，LmVIP 仍无法中断外部命令；正式服奖励命令仍建议使用 `%claim_id%` / `%dispatch_id%` 做外部幂等。
+
+## 2026-04-30 12:14 +08:00 - ExecutionService 反馈运行态验收
+
+- 当前阶段：LmCore-v2 `ExecutionService` 玩家反馈已从代码级验证补到 test-cell 成功路径 smoke。
+- 本段重点：验证充值、重复订单、daily 领奖和重复领取的反馈边界。
+- 已完成：`/vipadmin season start exec-115938 Exec115938` 后，`/vipadmin points add zzzderk recharge 100 codex exec-order-115938 execution-smoke` 触发充值成功提示和 actionbar；重复同 order 被记录为重复订单，无第二次反馈；`/vip claim daily` 成功触发领奖成功 actionbar；重复领取只返回“已领取”，未观察到二次奖励反馈。
+- 关键决策：反馈仍只服务成功路径，充值流水、claim 状态、LuckPerms 同步和奖励幂等继续由 LmVIP 自己维护，不迁入 ExecutionService。
+- 验证记录：`cell-01` 运行态通过；清理后 `cell-01` 已 stop + release，端口 `25570/38080/38081` 无监听，`exec-115938` / `exec-order-115938` 相关 DB 测试标记已删除。
+- 遗留问题：仍未做长时间高频 PAPI 压测；正式服奖励命令仍建议使用 `%claim_id%` / `%dispatch_id%` 做幂等。
+- 下一步：进入提交/发测前整理，正式测试服复测依赖仍是 LmCore、LuckPerms 和 `LmVIP` database profile。
+
 ## 2026-04-30 00:10 +08:00 - Review P2/P3 整理提交前复核
 
 - 当前阶段：收口 review P2/P3 修复、LmCore-v2 `ExecutionService` 玩家反馈接入和知识文件更新，准备提交本轮整理结果。

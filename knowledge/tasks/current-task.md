@@ -6,9 +6,13 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 
 ## 当前状态
 
-状态：生产前 P2/P3 风险修复、LmCore-v2 `ExecutionService` 玩家可见反馈接入、知识归档和提交前验证已完成；当前可提交本轮整理结果。
+状态：生产前 P2/P3 风险修复、LmCore-v2 `ExecutionService` 玩家可见反馈接入、review finding 收口、知识归档、提交前验证和运行态反馈 smoke 已完成；当前可提交本轮整理结果。
 
 2026-04-29 追加：已完成 LmCore-v2 `ExecutionService` 玩家可见反馈的代码级接入与构建验证。反馈只在充值入账、VIP 等级变化、奖励领取成功、手动权益刷新成功后触发；失败、重复、GUI 展示、PAPI 和状态预览路径不调用 `execute(...)`。本轮未跑 test-cell 真实反馈 smoke。
+
+2026-04-30 追加：`cell-01` 已补运行态反馈 smoke。开周目后充值 100 触发充值成功提示和 actionbar；重复同 order 被识别为重复订单且无第二次反馈；`/vip claim daily` 成功触发领奖成功 actionbar；重复领取只返回“已领取”，未观察到二次奖励反馈。测试后已清理 `exec-115938` / `exec-order-115938` 相关 DB 记录并释放 test-cell。
+
+2026-04-30 13:08 追加：已收口本轮 review findings。奖励命令异步切回主线程时增加 `future.cancel(false)` 和 claim `pending` 状态门闸，timeout 会先把 claim 标记为 failed，迟到的主线程任务或发放过程中状态被改掉时不再继续执行未完成命令；`BukkitTasks.async` 捕获 async/callback 调度失败并保证 callback 有结果；`VipService.refreshAndSync` 增加主线程保护，避免 LuckPerms 同步被误放到主线程。
 
 本轮只修 4 个自检 P2：奖励部分发放后重复领取风险、`levels.yml` 默认补齐污染、`refreshSnapshotAsync` 强制刷新语义、LuckPerms 旧组清理。没有新增 VIP 玩法，也没有修改 `LmVipApi` 公开方法签名。
 
@@ -22,6 +26,7 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 - 新增 `sync.legacy-groups: []`；LuckPerms 同步会清理当前 VIP 组和 legacy 旧组。
 - 新增 `execution-feedback` 配置和 `LmCoreExecutionFeedback` 适配层；通过 Bukkit ServicesManager 反射发现 LmCore `ExecutionService`，请求固定 `source=lmvip` 并携带 `reason/traceId`。
 - 自检修复：恢复 `config.yml` 中被注释吞掉的 YAML key，确保 `reward.command-timeout-seconds` 和 `execution-feedback` 默认配置真实生效。
+- Review finding 修复：奖励发放 timeout/迟到任务增加 claim 状态门闸，`BukkitTasks.async` 调度拒绝时不再静默丢 callback，`refreshAndSync` 明确只能异步调用。
 
 ## 验证记录
 
@@ -41,6 +46,10 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 - test-cell：删除已有 `levels.yml` 中 VIP3 后 `/vipadmin reload` 未把默认 VIP3 写回。
 - test-cell：配置 `sync.legacy-groups: [vip_old]` 后，玩家同步前父组为 `default/vip1/vip_old`，执行 `/vipadmin sync zzzderk` 后只剩 `default/vip1`。
 - test-cell：`cell-01` 已停止并释放，端口关闭，临时插件文件/配置已恢复，`lmvip_%` 测试表已删除。
+- 2026-04-30 ExecutionService runtime：`cell-01` 中 `/vipadmin season start exec-115938 Exec115938`、`/vipadmin points add zzzderk recharge 100 codex exec-order-115938 execution-smoke`、`/vip claim daily` 成功路径均有反馈；重复充值订单和重复 daily claim 未产生第二次反馈。测试后已 stop + release，端口 `25570/38080/38081` 无监听，相关 DB 测试标记已清理。
+- 2026-04-30 review finding 收口：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --tests cc.mcstory.lmvip.service.RewardServiceClaimRetryTest --tests cc.mcstory.lmvip.util.BukkitTasksTest --tests cc.mcstory.lmvip.service.VipServiceThreadGuardTest --stacktrace`：通过。
+- 2026-04-30 review finding 收口：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --stacktrace --rerun-tasks`：通过，51 tests / 0 failures / 0 errors / 0 skipped。
+- 2026-04-30 review finding 收口：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace`：通过，产物仍为 `build/libs/LmVIP.jar`。
 
 ## 已确认事实
 
