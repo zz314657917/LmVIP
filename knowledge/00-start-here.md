@@ -10,7 +10,7 @@
 
 ## 项目定位
 
-LmVIP 是 TabooLib 6 + Kotlin 的周目 VIP 插件，面向 Paper/Spigot/CatServer 1.12.2。插件强依赖 LmCore 与 LuckPerms，可选接入 PlaceholderAPI。
+LmVIP 是 TabooLib 6 + Kotlin 的周目 VIP 插件，当前采用双产物：`LmVIP-1.12.2.jar` 面向 Paper/Spigot/CatServer 1.12.2 + Java 8，`LmVIP-1.20.1.jar` 面向 Paper/Arclight 1.20.1 + Java 17 字节码。插件强依赖 LmCore 与 LuckPerms，可选接入 PlaceholderAPI。
 
 核心规则：
 
@@ -32,13 +32,15 @@ LmVIP 是 TabooLib 6 + Kotlin 的周目 VIP 插件，面向 Paper/Spigot/CatServ
 ## 构建与验证
 
 ```powershell
+F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP :lmvip-legacy:test :lmvip-modern:test --stacktrace
 F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace
 ```
 
 提测包：
 
 ```text
-F:/mcplugins/LmVIP/build/libs/LmVIP.jar
+F:/mcplugins/LmVIP/lmvip-legacy/build/libs/LmVIP-1.12.2.jar
+F:/mcplugins/LmVIP/lmvip-modern/build/libs/LmVIP-1.20.1.jar
 ```
 
 ## 接手注意

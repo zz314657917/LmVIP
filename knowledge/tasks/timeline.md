@@ -1,5 +1,18 @@
 # LmVIP 时间轴
 
+## 2026-06-25 19:15 +08:00 - 1.20.1 双产物构建兼容
+
+- 当前阶段：按计划将 LmVIP 从单一 1.12.2 产物拆为 legacy / modern 双产物，业务逻辑和公开 API 不分叉。
+- 本段重点：双模块构建、Java 8/17 字节码目标、plugin.yml 元数据隔离、启动 compatibility 诊断和 1.20.1 smoke 边界记录。
+- 已完成：新增 `lmvip-legacy` 和 `lmvip-modern` Gradle 子模块；legacy 使用 Java 8 / `LmVIP-1.12.2.jar`，modern 使用 Java 17 / `LmVIP-1.20.1.jar` 并引入 Paper 1.20.1 compile API。
+- 已完成：新增 `RuntimeCompatibilityStatus` / `PlatformCompatibility` 启动诊断，记录 artifact、Java runtime、服务端类型、Bukkit 版本、LmCore/LuckPerms/PAPI 状态和 verdict。
+- 已完成：新增 P/G/E workflow 文档、README 和 knowledge 支持矩阵；modern `plugin.yml` 已生成 `api-version: 1.20`，legacy 不声明 `api-version`。
+- 关键决策：保留同一个插件名 `LmVIP`、同一套业务源码、数据库表、配置语义和 `LmVipApi`；两个产物都不声明 Folia 支持。
+- 验证记录：`:lmvip-legacy:test :lmvip-modern:test --stacktrace` 通过；`clean build --stacktrace` 通过；jar 检查确认 legacy class major=52、modern class major=61，且两个产物均不声明 Folia 支持。
+- 验证记录：BlackBoxPro `cell-06` Arclight/Forge 1.20.1 基础启动/relay smoke 通过，LmCore database profile `LmVIP` 可用，LuckPerms/PAPI 已启用，compatibility verdict 为 `DEGRADED`。
+- 遗留问题：Paper 1.20.1 真实服务器 smoke 未覆盖；Arclight 业务命令链路因 test-cell OP/权限设置未覆盖，不能表述为完整业务 PASS。
+- 下一步：提交并推送本轮双产物改动；后续在 Paper 1.20.1 服补启动、充值、领奖、PAPI、LuckPerms group 和 LmCore ExecutionService smoke。
+
 ## 2026-04-30 13:08 +08:00 - Review findings 收口
 
 - 当前阶段：提交/提测前继续收口 3 个 review findings，目标是降低奖励 timeout 状态不一致和生命周期边界风险。

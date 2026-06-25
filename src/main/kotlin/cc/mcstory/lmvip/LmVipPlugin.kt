@@ -2,6 +2,7 @@ package cc.mcstory.lmvip
 
 import cc.mcstory.lmvip.api.BukkitLmVipApi
 import cc.mcstory.lmvip.api.LmVipApi
+import cc.mcstory.lmvip.compat.PlatformCompatibility
 import cc.mcstory.lmvip.config.VipConfigManager
 import cc.mcstory.lmvip.integration.LmVipPlaceholderExpansion
 import cc.mcstory.lmvip.integration.LuckPermsGroupSync
@@ -18,6 +19,8 @@ object LmVipPlugin : Plugin() {
 
     override fun onEnable() {
         try {
+            val status = PlatformCompatibility.detect()
+            info("[LmVIP] compatibility: ${status.summary()}")
             val plugin = BukkitPlugin.getInstance()
             VipConfigManager.ensureDefaults(plugin)
             val config = VipConfigManager.load(plugin)

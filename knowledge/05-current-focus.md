@@ -2,13 +2,13 @@
 title: Current Focus
 type: status
 repo: LmVIP
-last_verified: 2026-04-30
+last_verified: 2026-06-25
 ---
 
 # 当前默认关注点
 - 仓库已经不是 planner 阶段，当前事实源是现有实现、`README.md`、`knowledge/tasks/current-task.md` 与 `knowledge/tasks/timeline.md`
 - 最近稳定改动集中在奖励 claim 状态机、`claims retry/reset`、LuckPerms legacy 旧组清理、PAPI 缓存与 `LmCore ExecutionService` 玩家可见反馈
-- 本轮重点不是新增 VIP 玩法，而是保持 `1.12.2 + Java 8 + LmCore + LuckPerms 5.4.x` 这条运行基线稳定
+- 本轮重点不是新增 VIP 玩法，而是把稳定业务核心拆成双产物：`1.12.2 + Java 8` legacy 包和 `1.20.1 + Java 17` modern 包
 - `ExecutionService` 只负责成功路径的玩家反馈，不接管充值流水、奖励幂等、VIP 业务状态或 LuckPerms 同步
 
 # 接手时建议先看
@@ -21,7 +21,7 @@ last_verified: 2026-04-30
 - `README.md`
 
 # 当前更稳定的结论
-- 构建产物仍是 `build/libs/LmVIP.jar`，当前公开对外查询入口仍是 Bukkit `ServicesManager` 暴露的 `LmVipApi`
+- 构建产物为 `lmvip-legacy/build/libs/LmVIP-1.12.2.jar` 和 `lmvip-modern/build/libs/LmVIP-1.20.1.jar`，当前公开对外查询入口仍是 Bukkit `ServicesManager` 暴露的 `LmVipApi`
 - claim 记录现在使用 `pending`、`claimed`、`failed`；`/vipadmin claims retry` 只续跑失败或未执行命令，`claims reset` 只清理 `failed/pending`
 - `ExecutionService` 成功路径反馈已经补过 test-cell smoke；重复订单、重复领取、GUI 展示、PAPI 和状态预览不应触发反馈
-- 当前剩余高价值验证主要在正式测试服：真实运营奖励命令链路，以及玩家离线 300 秒缓存保留的长跑观察
+- 当前剩余高价值验证主要在正式测试服：Paper 1.20.1 runtime smoke、Arclight 1.20.1 业务命令链路、真实运营奖励命令链路，以及玩家离线 300 秒缓存保留的长跑观察

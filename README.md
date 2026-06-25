@@ -12,21 +12,24 @@ LmVIP 是一个基于 TabooLib 6 的周目 VIP 系统。
 
 1. 在 `LmCore` 中配置可用的数据库 profile，默认名称为 `LmVIP`。
 2. 安装并启用 `LmCore`、`LuckPerms`，需要变量时再安装 `PlaceholderAPI`。
-3. 将 `build/libs/LmVIP.jar` 放入服务端 `plugins`。
+3. 按服务端版本选择产物放入 `plugins`：1.12.2 使用 `lmvip-legacy/build/libs/LmVIP-1.12.2.jar`，1.20.1 使用 `lmvip-modern/build/libs/LmVIP-1.20.1.jar`。
 4. 启动后检查生成的 `config.yml`、`levels.yml`、`gui.yml`、`lang.yml`。
 
 Paper/Spigot 1.12.2 通常仍跑在 Java 8。LuckPerms 请使用兼容 Java 8 的 Bukkit 版本，例如 5.4.x；较新的 5.5.x 版本可能要求更高 Java 版本。
 
 插件启动和 `/vipadmin reload` 会检查 `config.yml`、`levels.yml`、`gui.yml`、`lang.yml`。缺失文件会自动生成。`config.yml`、`gui.yml`、`lang.yml` 已有文件缺少默认 key 时会先备份为 `.bak-时间戳`，再只补缺失项，不覆盖已有值。`levels.yml` 是运营业务配置，已有文件不会被默认 VIP 示例反向补齐；单个等级缺字段时使用读取层默认值并输出日志提示。
 
-已验证环境：
+当前支持矩阵：
 
-- CatServer/Paper 1.12.2，Java 8
-- TabooLib 6 打包产物
+- CatServer/Paper 1.12.2，Java 8，产物 `LmVIP-1.12.2.jar`
+- Paper/Arclight 1.20.1，Java 17+ 运行时，产物 `LmVIP-1.20.1.jar`
+- TabooLib 6 打包产物，两个产物插件名都保持 `LmVIP`
 - LmCore `database("LmVIP")`
 - LuckPerms Bukkit 5.4.x
 - PlaceholderAPI 2.10.6
 - Docker MySQL，通过 LmCore profile 连接
+
+1.20.1 产物使用 Java 17 字节码，面向 Paper 和 Arclight 1.20.1 验收。Paper 是主要现代目标；当前 Arclight 1.20.1 已完成基础启动/relay smoke，compatibility verdict 为 `DEGRADED`；业务命令链路和 Paper 1.20.1 仍需单独验收。两个产物都不声明 Folia 支持。
 
 ## 周目流程
 
@@ -208,8 +211,18 @@ PAPI 请求在主线程只读取缓存，不直接查库。缓存过期或缺失
 ## 构建验证
 
 ```powershell
+F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP :lmvip-legacy:test :lmvip-modern:test --stacktrace
 F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace
 ```
+
+产物路径：
+
+```text
+F:/mcplugins/LmVIP/lmvip-legacy/build/libs/LmVIP-1.12.2.jar
+F:/mcplugins/LmVIP/lmvip-modern/build/libs/LmVIP-1.20.1.jar
+```
+
+启动时插件会输出 compatibility 诊断，包含产物目标、Java runtime、服务端类型、Bukkit 版本、LmCore/LuckPerms/PlaceholderAPI 状态和 verdict。
 
 ## 提测清单
 
@@ -227,3 +240,4 @@ F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stackt
 12. 配置 `sync.legacy-groups` 后执行 `/vipadmin sync 玩家名`，确认旧 VIP 组会被移除。
 13. 删除或缺失 `lang.yml`、必要配置 key 后重启或 `/vipadmin reload`，确认自动生成或补齐并产生 `.bak-时间戳`。
 14. 缺少 `LmCore` 或 `LuckPerms` 时，服务端应阻止 LmVIP 正常启用并输出明确依赖错误。
+15. 1.20.1 Paper/Arclight smoke 需额外确认 compatibility verdict；Arclight 若显示 degraded/blocked，按日志根因处理，不影响 Paper 结果。

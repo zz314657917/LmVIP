@@ -6,13 +6,15 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 
 ## 当前状态
 
-状态：生产前 P2/P3 风险修复、LmCore-v2 `ExecutionService` 玩家可见反馈接入、review finding 收口、知识归档、提交前验证和运行态反馈 smoke 已完成；当前可提交本轮整理结果。
+状态：生产前 P2/P3 风险修复、LmCore-v2 `ExecutionService` 玩家可见反馈接入、review finding 收口、知识归档、提交前验证和运行态反馈 smoke 已完成；当前已进入 1.20.1 双产物兼容阶段，Gradle 双模块构建、jar 元数据验证和 Arclight 1.20.1 基础启动/relay smoke 已通过。Paper 1.20.1 smoke 与 Arclight 业务命令链路仍待覆盖。
 
 2026-04-29 追加：已完成 LmCore-v2 `ExecutionService` 玩家可见反馈的代码级接入与构建验证。反馈只在充值入账、VIP 等级变化、奖励领取成功、手动权益刷新成功后触发；失败、重复、GUI 展示、PAPI 和状态预览路径不调用 `execute(...)`。本轮未跑 test-cell 真实反馈 smoke。
 
 2026-04-30 追加：`cell-01` 已补运行态反馈 smoke。开周目后充值 100 触发充值成功提示和 actionbar；重复同 order 被识别为重复订单且无第二次反馈；`/vip claim daily` 成功触发领奖成功 actionbar；重复领取只返回“已领取”，未观察到二次奖励反馈。测试后已清理 `exec-115938` / `exec-order-115938` 相关 DB 记录并释放 test-cell。
 
 2026-04-30 13:08 追加：已收口本轮 review findings。奖励命令异步切回主线程时增加 `future.cancel(false)` 和 claim `pending` 状态门闸，timeout 会先把 claim 标记为 failed，迟到的主线程任务或发放过程中状态被改掉时不再继续执行未完成命令；`BukkitTasks.async` 捕获 async/callback 调度失败并保证 callback 有结果；`VipService.refreshAndSync` 增加主线程保护，避免 LuckPerms 同步被误放到主线程。
+
+2026-06-25 追加：已按双产物计划拆出 `lmvip-legacy` 与 `lmvip-modern`。legacy 产物为 `LmVIP-1.12.2.jar`，Java 8 字节码，插件元数据不声明 `api-version`；modern 产物为 `LmVIP-1.20.1.jar`，Java 17 字节码，插件元数据声明 `api-version: 1.20`。两者共享现有业务源码、配置语义、数据库表和 `LmVipApi`。
 
 本轮只修 4 个自检 P2：奖励部分发放后重复领取风险、`levels.yml` 默认补齐污染、`refreshSnapshotAsync` 强制刷新语义、LuckPerms 旧组清理。没有新增 VIP 玩法，也没有修改 `LmVipApi` 公开方法签名。
 
@@ -27,6 +29,7 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 - 新增 `execution-feedback` 配置和 `LmCoreExecutionFeedback` 适配层；通过 Bukkit ServicesManager 反射发现 LmCore `ExecutionService`，请求固定 `source=lmvip` 并携带 `reason/traceId`。
 - 自检修复：恢复 `config.yml` 中被注释吞掉的 YAML key，确保 `reward.command-timeout-seconds` 和 `execution-feedback` 默认配置真实生效。
 - Review finding 修复：奖励发放 timeout/迟到任务增加 claim 状态门闸，`BukkitTasks.async` 调度拒绝时不再静默丢 callback，`refreshAndSync` 明确只能异步调用。
+- 双产物兼容：新增 `RuntimeCompatibilityStatus` / `PlatformCompatibility` 启动诊断，启动日志会输出 artifact、runtimeJava、server、deps 和 verdict；新增 P/G/E workflow 文档记录本轮兼容任务。
 
 ## 验证记录
 
@@ -50,10 +53,14 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 - 2026-04-30 review finding 收口：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --tests cc.mcstory.lmvip.service.RewardServiceClaimRetryTest --tests cc.mcstory.lmvip.util.BukkitTasksTest --tests cc.mcstory.lmvip.service.VipServiceThreadGuardTest --stacktrace`：通过。
 - 2026-04-30 review finding 收口：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP test --stacktrace --rerun-tasks`：通过，51 tests / 0 failures / 0 errors / 0 skipped。
 - 2026-04-30 review finding 收口：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace`：通过，产物仍为 `build/libs/LmVIP.jar`。
+- 2026-06-25 双产物兼容：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP :lmvip-legacy:test :lmvip-modern:test --stacktrace`：通过。
+- 2026-06-25 双产物兼容：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace`：通过。
+- 2026-06-25 双产物兼容：jar 检查通过，`LmVIP-1.12.2.jar` 的 `LmVipPlugin.class` major=52，`LmVIP-1.20.1.jar` 的 `LmVipPlugin.class` major=61；modern `plugin.yml` 含 `api-version: 1.20`，legacy 不含。
+- 2026-06-25 1.20.1 runtime：BlackBoxPro `cell-06` Arclight/Forge 1.20.1 基础 smoke 通过，日志显示 `LmCore database(default): available`、`LmVIP enabled with LmCore database profile 'LmVIP'`，compatibility 为 `artifact=1.20.1/java17, runtimeJava=17.0.18, server=ARCLIGHT/1.20.1-R0.1-SNAPSHOT, deps=LmCore:ENABLED LuckPerms:ENABLED PAPI:ENABLED, verdict=DEGRADED`。
 
 ## 已确认事实
 
-- 构建产物路径仍为 `F:/mcplugins/LmVIP/build/libs/LmVIP.jar`。
+- 构建产物路径为 `F:/mcplugins/LmVIP/lmvip-legacy/build/libs/LmVIP-1.12.2.jar` 与 `F:/mcplugins/LmVIP/lmvip-modern/build/libs/LmVIP-1.20.1.jar`。
 - 运行时仍依赖 `LmCore` 插件名、`LuckPerms` 和 LmCore database profile `LmVIP`；本插件不接入 LmCore PlayerState V2。
 - `lmvip_claims` 旧领取记录默认按 `claimed` 兼容。
 - PAPI 高频缓存策略仍保持：主线程只读内存，过期返回旧值并合并刷新，无缓存返回空并合并刷新。
@@ -62,3 +69,5 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 
 - 未单独等待默认 300 秒验证玩家退出后的延迟缓存清理；该点仍建议正式测试服长跑观察。
 - 正式服运营奖励命令建议使用单一奖励入口，并消费 `%claim_id%` 或 `%dispatch_id%` 做幂等；LmVIP 不尝试回滚外部插件已发出的物品或货币。
+- Paper 1.20.1 真实服务器 smoke 尚未执行。
+- Arclight 1.20.1 已完成基础启动/relay smoke，但业务命令链路因 test-cell OP/权限设置未覆盖；不能表述为完整业务 PASS。
