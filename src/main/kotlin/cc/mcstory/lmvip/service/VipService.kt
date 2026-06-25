@@ -18,6 +18,7 @@ class VipService(
     private val repository: JdbcVipRepository,
     private val groupSync: LuckPermsGroupSync,
     val rewards: RewardService,
+    private val primaryThreadCheck: () -> Boolean = { Bukkit.isPrimaryThread() },
 ) {
     private val cache = SnapshotCacheStore<VipSnapshot>({ config.snapshotTtlMillis })
 
@@ -107,6 +108,9 @@ class VipService(
     }
 
     fun refreshAndSync(player: OfflinePlayer, playerName: String? = null): VipSnapshot {
+        check(!primaryThreadCheck()) {
+            "VipService.refreshAndSync must be called from an async thread."
+        }
         val name = playerName ?: player.name ?: player.uniqueId.toString()
         val snapshot = snapshot(player.uniqueId, name, force = true)
         groupSync.sync(player, snapshot.vipLevel)

@@ -239,22 +239,34 @@ class RewardService(
             val future = CompletableFuture<CommandDispatchOutcome>()
             runCatching {
                 Bukkit.getScheduler().runTask(BukkitPlugin.getInstance(), Runnable {
+                    if (future.isCancelled) {
+                        return@Runnable
+                    }
                     future.complete(task())
                 })
                 future.get(config.rewardCommandTimeoutSeconds, TimeUnit.SECONDS)
             }.getOrElse {
                 warn("Reward command dispatch failed or timed out for ${context.playerName}: ${it.message}")
-                CommandDispatchOutcome(false, raw("reward.dispatch-timeout"))
+                future.cancel(false)
+                timeoutOutcome(claimId)
             }
         }
     }
 
     private fun runRewardCommands(context: RewardCommandContext, claimId: Long, commands: List<String>): CommandDispatchOutcome {
+        if (!isClaimPending(claimId)) {
+            warn("Skipped reward command dispatch for ${context.playerName}: claim $claimId is no longer pending")
+            return CommandDispatchOutcome(false, raw("reward.dispatch-timeout"))
+        }
         val records = repository.listClaimCommands(claimId)
         val validation = validateClaimCommands(records, commands)
         if (!validation.success) return validation
         for (record in records.sortedBy { it.commandIndex }) {
             if (record.status == ClaimCommandStatus.SUCCEEDED) continue
+            if (!isClaimPending(claimId)) {
+                warn("Stopped reward command dispatch for ${context.playerName}: claim $claimId is no longer pending")
+                return CommandDispatchOutcome(false, raw("reward.dispatch-timeout"))
+            }
             val command = commands.getOrNull(record.commandIndex)
                 ?: return CommandDispatchOutcome(false, raw("reward.retry-command-changed"))
             val parsed = context.render(command)
@@ -267,6 +279,16 @@ class RewardService(
             }
         }
         return CommandDispatchOutcome(true, raw("reward.claim-success"))
+    }
+
+    private fun timeoutOutcome(claimId: Long): CommandDispatchOutcome {
+        val message = raw("reward.dispatch-timeout")
+        repository.updateClaimStatus(claimId, ClaimDispatchStatus.FAILED, message)
+        return CommandDispatchOutcome(false, message)
+    }
+
+    private fun isClaimPending(claimId: Long): Boolean {
+        return repository.claimStatus(claimId) == ClaimDispatchStatus.PENDING
     }
 
     private fun validateClaimCommands(records: List<ClaimCommandRecord>, commands: List<String>): CommandDispatchOutcome {

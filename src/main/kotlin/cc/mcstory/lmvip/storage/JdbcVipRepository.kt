@@ -454,6 +454,17 @@ class JdbcVipRepository(
         }
     }
 
+    fun claimStatus(claimId: Long): ClaimDispatchStatus? {
+        database.getConnection().use { connection ->
+            connection.prepareStatement("SELECT status FROM lmvip_claims WHERE id=?").use {
+                it.setLong(1, claimId)
+                it.executeQuery().use { rs ->
+                    return if (rs.next()) ClaimDispatchStatus.parse(rs.getString("status")) else null
+                }
+            }
+        }
+    }
+
     fun listClaimCommands(claimId: Long): List<ClaimCommandRecord> {
         database.getConnection().use { connection ->
             connection.prepareStatement("SELECT * FROM lmvip_claim_commands WHERE claim_id=? ORDER BY command_index ASC").use {

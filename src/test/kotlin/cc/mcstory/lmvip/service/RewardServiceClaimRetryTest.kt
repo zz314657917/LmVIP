@@ -7,6 +7,7 @@ import cc.mcstory.lmvip.config.ExecutionFeedbackConfig
 import cc.mcstory.lmvip.config.VipRuntimeConfig
 import cc.mcstory.lmvip.model.ClaimCommandStatus
 import cc.mcstory.lmvip.model.ClaimDispatchStatus
+import cc.mcstory.lmvip.model.ClaimRecord
 import cc.mcstory.lmvip.model.ClaimType
 import cc.mcstory.lmvip.model.ClaimWriteResult
 import cc.mcstory.lmvip.model.RewardRule
@@ -20,10 +21,53 @@ import java.time.ZoneId
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class RewardServiceClaimRetryTest {
+
+    @Test
+    fun `dispatch skips commands when claim is no longer pending before server thread execution`() {
+        val repository = repository()
+        val playerId = UUID.fromString("00000000-0000-0000-0000-000000000034")
+        val executed = mutableListOf<String>()
+        lateinit var service: RewardService
+        lateinit var claim: ClaimRecord
+        service = RewardService(
+            config = config(listOf("say first")),
+            repository = repository,
+            commandExecutor = object : RewardCommandExecutor {
+                override fun execute(context: RewardCommandContext, commandTemplate: String): Boolean {
+                    executed += commandTemplate
+                    return true
+                }
+            },
+            serverThreadDispatcher = { _, task ->
+                repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, "timeout")
+                task()
+            }
+        )
+        claim = assertIs<ClaimWriteResult.Inserted>(
+            repository.beginClaim(
+                playerId,
+                "tester",
+                "season-1",
+                ClaimType.DAILY.dbKey,
+                1,
+                service.periodKey(ClaimType.DAILY),
+                listOf("say first")
+            )
+        ).claim
+        repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, "failed")
+
+        val result = service.retryClaim(playerId, "tester", snapshot(playerId), ClaimType.DAILY)
+
+        assertFalse(result.success)
+        assertEquals(emptyList(), executed)
+        assertEquals(ClaimDispatchStatus.FAILED, repository.findClaim(playerId, "season-1", ClaimType.DAILY.dbKey, 1, service.periodKey(ClaimType.DAILY))?.status)
+        assertEquals(ClaimCommandStatus.PENDING, repository.listClaimCommands(claim.id).single().status)
+    }
 
     @Test
     fun `retry resumes failed command without replaying succeeded command`() {

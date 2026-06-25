@@ -4,6 +4,8 @@
 
 - 当前快照：[tasks/current-task.md](tasks/current-task.md)
 - 阶段时间轴：[tasks/timeline.md](tasks/timeline.md)
+- 构建与验证：[03-build-and-verify.md](03-build-and-verify.md)
+- 当前关注点：[05-current-focus.md](05-current-focus.md)
 - 用户与运维文档：../README.md
 
 ## 项目定位
