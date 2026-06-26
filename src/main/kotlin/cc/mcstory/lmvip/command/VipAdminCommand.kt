@@ -196,7 +196,10 @@ object VipAdminCommand {
             val op = args.getOrNull(2)?.lowercase() ?: return helpPoints(sender)
             val player = offline(args.getOrNull(3) ?: return helpPoints(sender))
             val seasonId = args.getOrNull(4) ?: return helpPoints(sender)
-            val amount = args.getOrNull(5)?.toLongOrNull()
+            val amount = args.getOrNull(5)?.positiveAmountOrNull()
+            if (op != "reset" && amount == null) {
+                return sender.sendMessage(msg("admin.transaction.invalid-amount"))
+            }
             val reason = if (op == "reset") {
                 args.getOrNull(5) ?: "season-reset"
             } else {
@@ -215,7 +218,8 @@ object VipAdminCommand {
         }
         val player = offline(args.getOrNull(2) ?: return helpPoints(sender))
         if (action == "add" && args.getOrNull(3).equals("recharge", true)) {
-            val amount = args.getOrNull(4)?.toLongOrNull() ?: return helpPoints(sender)
+            val amount = args.getOrNull(4)?.positiveAmountOrNull()
+                ?: return sender.sendMessage(msg("admin.transaction.invalid-amount"))
             val source = args.getOrNull(5) ?: return helpPoints(sender)
             val order = args.getOrNull(6) ?: return helpPoints(sender)
             val reason = args.getOrNull(7) ?: "recharge"
@@ -229,7 +233,10 @@ object VipAdminCommand {
             return
         }
         val dimension = PointDimension.parse(args.getOrNull(3) ?: "") ?: return helpPoints(sender)
-        val amount = args.getOrNull(4)?.toLongOrNull()
+        val amount = args.getOrNull(4)?.positiveAmountOrNull()
+        if (action != "reset" && amount == null) {
+            return sender.sendMessage(msg("admin.transaction.invalid-amount"))
+        }
         val reason = if (action == "reset") {
             args.getOrNull(4) ?: "reset-${dimension.dbKey}"
         } else {
@@ -402,6 +409,7 @@ object VipAdminCommand {
                 when (writeResult) {
                     is TransactionWriteResult.Inserted -> msg("admin.transaction.inserted", "prefix" to prefix, "id" to writeResult.transactionId)
                     is TransactionWriteResult.DuplicateOrder -> msg("admin.transaction.duplicate", "prefix" to prefix, "source" to writeResult.source, "order" to writeResult.orderId)
+                    is TransactionWriteResult.DuplicateMismatch -> msg("admin.transaction.duplicate-mismatch", "prefix" to prefix, "source" to writeResult.source, "order" to writeResult.orderId)
                     TransactionWriteResult.NoChange,
                     null -> msg("admin.transaction.no-change", "prefix" to prefix, "text" to noChangeText)
                 }
@@ -435,5 +443,10 @@ object VipAdminCommand {
 
     private fun raw(key: String, vararg placeholders: Pair<String, Any?>): String {
         return LmVipServices.rawMessage(key, *placeholders)
+    }
+
+    private fun String.positiveAmountOrNull(): Long? {
+        val value = toLongOrNull() ?: return null
+        return value.takeIf { it > 0 }
     }
 }

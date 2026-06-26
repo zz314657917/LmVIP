@@ -2,7 +2,7 @@
 title: Build And Verify
 type: build
 repo: LmVIP
-last_verified: 2026-04-30
+last_verified: 2026-06-26
 ---
 
 # 构建工具
@@ -25,6 +25,8 @@ last_verified: 2026-04-30
 - `2026-04-30`：`clean build --stacktrace` 通过，产物仍为 `build/libs/LmVIP.jar`
 - `2026-04-30`：`cell-01` 成功路径 smoke 已验证 `ExecutionService` 反馈边界。充值成功与 daily 领奖成功会触发反馈；重复订单与重复领取不会产生第二次反馈
 - `2026-04-29 ~ 2026-04-30`：Docker MySQL + test-cell 已覆盖 claim `failed -> retry -> claimed`、`claims reset`、`levels.yml` 不反向补默认等级、LuckPerms legacy 旧组清理
+- `2026-06-26`：静态审计 P0/P1 代码级修复已覆盖 claim 执行权 CAS、`running/manual_review` 状态、reset 保留成功命令证据、奖励命令 DB 操作移出主线程、重复订单内容校验、管理金额正数校验、LuckPerms 同步失败显式失败
+- `2026-06-26`：`:lmvip-legacy:test :lmvip-modern:test --stacktrace` 通过；`clean build --stacktrace` 通过；jar 检查确认 legacy class major=52、modern class major=61，modern `api-version: 1.20`，两者均未声明 Folia 支持；`git diff --check` 通过，仅 LF/CRLF 提示
 
 # 兼容与提测前置
 - 1.12.2：CatServer/Paper/Spigot 1.12.2、Java 8、`LmCore`、LuckPerms Bukkit `5.4.x`
@@ -36,6 +38,7 @@ last_verified: 2026-04-30
 # 手动验证优先级
 - 先做 `/vipadmin season start`、`/vipadmin points add`、重复 `source + orderId` 幂等检查
 - 再做 `/vip claim daily|weekly|monthly|once`、故障后 `/vipadmin claims retry|reset`、LuckPerms 组同步与 rollback
+- 部分奖励命令成功后，`claims reset` 应被拒绝并保留 `lmvip_claim_commands`；无成功命令时 reset 应转为 `manual_review`
 - 需要玩家可见反馈时，再补 `execution-feedback` 成功路径 smoke 和 `/vipadmin cache stats|clear|warm`
 - 1.20.1 smoke 要检查启动日志里的 `[LmVIP] compatibility:`，确认 artifact、runtimeJava、server、deps 和 verdict
 
@@ -43,4 +46,5 @@ last_verified: 2026-04-30
 - `cache.retain-after-quit-seconds` 默认 300 秒的离线缓存保留，当前没有单独长跑验证
 - Paper 1.20.1 真实服务器 smoke 尚未覆盖
 - Arclight 1.20.1 已完成基础启动/relay smoke 且 verdict 为 `DEGRADED`，但业务命令链路因 test-cell OP/权限设置未覆盖
+- 余额投影/outbox worker 还没有做完整工程化；当前先做到 LuckPerms 失败显式失败，后续若接真实高价值充值，建议继续做持久化 VIP_SYNC_JOB 和事务化余额投影
 - 正式服运营奖励命令仍需要结合真实外部奖励插件再做一次端到端 smoke

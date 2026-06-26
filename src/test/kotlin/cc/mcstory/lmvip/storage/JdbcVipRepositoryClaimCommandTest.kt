@@ -45,7 +45,7 @@ class JdbcVipRepositoryClaimCommandTest {
     }
 
     @Test
-    fun `reset claim deletes command state rows with claim`() {
+    fun `manual review keeps command state rows with claim`() {
         val repository = repository()
         val playerId = UUID.fromString("00000000-0000-0000-0000-000000000022")
         val claim = assertIs<ClaimWriteResult.Inserted>(
@@ -53,10 +53,13 @@ class JdbcVipRepositoryClaimCommandTest {
         ).claim
 
         repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, "failed")
-        assertTrue(repository.deleteClaim(playerId, "season-1", "weekly", 1, "2026-W18"))
+        assertTrue(repository.markClaimManualReview(claim.id, "manual check"))
 
-        assertNull(repository.findClaim(playerId, "season-1", "weekly", 1, "2026-W18"))
-        assertEquals(emptyList(), repository.listClaimCommands(claim.id))
+        assertEquals(
+            ClaimDispatchStatus.MANUAL_REVIEW,
+            repository.findClaim(playerId, "season-1", "weekly", 1, "2026-W18")?.status
+        )
+        assertEquals(1, repository.listClaimCommands(claim.id).size)
     }
 
     @Test
@@ -74,6 +77,39 @@ class JdbcVipRepositoryClaimCommandTest {
         assertEquals(ClaimCommandStatus.SUCCEEDED, commands[0].status)
         assertEquals(ClaimCommandStatus.FAILED, commands[1].status)
         assertNotNull(commands[1].failureReason)
+    }
+
+    @Test
+    fun `claim running transition is atomic`() {
+        val repository = repository()
+        val playerId = UUID.fromString("00000000-0000-0000-0000-000000000024")
+        val claim = assertIs<ClaimWriteResult.Inserted>(
+            repository.beginClaim(playerId, "tester", "season-1", "daily", 1, "20260429", listOf("say first"))
+        ).claim
+        repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, "failed")
+
+        assertTrue(repository.tryMarkClaimRunning(claim.id, ClaimDispatchStatus.FAILED, "worker-a", 12345L))
+        assertEquals(false, repository.tryMarkClaimRunning(claim.id, ClaimDispatchStatus.FAILED, "worker-b", 12345L))
+        assertEquals(ClaimDispatchStatus.RUNNING, repository.findClaim(playerId, "season-1", "daily", 1, "20260429")?.status)
+    }
+
+    @Test
+    fun `initialize recovers expired running claim`() {
+        val database = H2DatabaseService("jdbc:h2:mem:lmvip_${UUID.randomUUID()};MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1")
+        val periods = PeriodService(ZoneId.of("Asia/Shanghai"), DayOfWeek.MONDAY)
+        val repository = JdbcVipRepository(database, periods)
+        repository.initialize()
+        val playerId = UUID.fromString("00000000-0000-0000-0000-000000000025")
+        val claim = assertIs<ClaimWriteResult.Inserted>(
+            repository.beginClaim(playerId, "tester", "season-1", "daily", 1, "20260429", listOf("say first"))
+        ).claim
+        assertTrue(repository.tryMarkClaimRunning(claim.id, ClaimDispatchStatus.PENDING, "worker-a", 1L))
+        assertTrue(repository.tryMarkClaimCommandRunning(claim.id, 0))
+
+        JdbcVipRepository(database, periods).initialize()
+
+        assertEquals(ClaimDispatchStatus.FAILED, repository.findClaim(playerId, "season-1", "daily", 1, "20260429")?.status)
+        assertEquals(ClaimCommandStatus.FAILED, repository.listClaimCommands(claim.id).single().status)
     }
 
     private fun repository(): JdbcVipRepository {

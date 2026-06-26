@@ -113,7 +113,9 @@ class VipService(
         }
         val name = playerName ?: player.name ?: player.uniqueId.toString()
         val snapshot = snapshot(player.uniqueId, name, force = true)
-        groupSync.sync(player, snapshot.vipLevel)
+        check(groupSync.sync(player, snapshot.vipLevel)) {
+            "LuckPerms sync failed for ${player.uniqueId}"
+        }
         LmVipPlaceholderExpansion.refresh(snapshot.playerId, snapshot.playerName)
         return snapshot
     }

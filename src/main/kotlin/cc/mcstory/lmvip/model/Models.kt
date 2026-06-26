@@ -82,8 +82,10 @@ data class ClaimStatus(
 
 enum class ClaimDispatchStatus {
     PENDING,
+    RUNNING,
     CLAIMED,
-    FAILED;
+    FAILED,
+    MANUAL_REVIEW;
 
     val dbKey: String
         get() = name.lowercase()
@@ -98,6 +100,7 @@ enum class ClaimDispatchStatus {
 
 enum class ClaimCommandStatus {
     PENDING,
+    RUNNING,
     SUCCEEDED,
     FAILED;
 
@@ -123,6 +126,9 @@ data class ClaimRecord(
     val status: ClaimDispatchStatus,
     val dispatchId: String?,
     val failureReason: String?,
+    val workerId: String?,
+    val leaseUntil: Long?,
+    val version: Long,
 )
 
 data class ClaimCommandRecord(
@@ -149,12 +155,14 @@ data class OperationResult(
 sealed class TransactionWriteResult {
     data class Inserted(val transactionId: Long) : TransactionWriteResult()
     data class DuplicateOrder(val source: String, val orderId: String) : TransactionWriteResult()
+    data class DuplicateMismatch(val source: String, val orderId: String) : TransactionWriteResult()
     object NoChange : TransactionWriteResult()
 
     fun transactionIdOrNull(): Long? {
         return when (this) {
             is Inserted -> transactionId
             is DuplicateOrder,
+            is DuplicateMismatch,
             NoChange -> null
         }
     }
@@ -163,6 +171,7 @@ sealed class TransactionWriteResult {
         return when (this) {
             is Inserted -> "$prefix: $transactionId"
             is DuplicateOrder -> "$prefix: 重复订单 $source/$orderId"
+            is DuplicateMismatch -> "$prefix: 重复订单内容不一致 $source/$orderId"
             NoChange -> "$prefix: $noChangeText"
         }
     }

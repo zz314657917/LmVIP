@@ -178,7 +178,9 @@ levels:
 
 日/周/月奖励领取记录带当前周目和周期 key。换周目后，日/周/月奖励会在新周目重新计算领取记录；once 礼包不会随周目刷新。
 
-奖励领取记录使用 `pending`、`claimed`、`failed` 状态。奖励命令发放失败或超时后，本次记录会标记为 `failed`，不会删除记录，也不会允许玩家重复领取。LmVIP 会记录每条奖励命令的发放状态，管理员执行 `/vipadmin claims retry <player> <daily|weekly|monthly|once> [level]` 时会跳过已经成功的命令，只续跑失败或未执行的同序号命令；不要在部分发放后重排已成功命令。`/vipadmin claims reset <player> <daily|weekly|monthly|once> [level]` 只清理 `failed/pending` 记录。
+奖励领取记录使用 `pending`、`running`、`claimed`、`failed`、`manual_review` 状态。奖励命令发放失败或超时后，本次记录会标记为 `failed`，不会删除记录，也不会允许玩家重复领取。LmVIP 会记录每条奖励命令的发放状态，管理员执行 `/vipadmin claims retry <player> <daily|weekly|monthly|once> [level]` 时会先通过数据库原子状态转换获取执行权，再跳过已经成功的命令，只续跑失败或未执行的同序号命令；不要在部分发放后重排已成功命令。
+
+`/vipadmin claims reset <player> <daily|weekly|monthly|once> [level]` 不再物理删除领取记录。若已有任意奖励命令成功，reset 会被拒绝，必须人工核对后补发剩余奖励；若没有成功命令，记录会转为 `manual_review` 并保留命令发放证据。
 
 奖励命令支持额外占位符：
 
@@ -189,6 +191,8 @@ levels:
 ```
 
 生产环境建议把真实礼包收口到单一奖励插件入口，并使用 `%claim_id%` 或 `%dispatch_id%` 做幂等。LmVIP 可以避免自身 retry 重放已成功命令，但无法感知外部插件在 `dispatchCommand` 返回成功后的异步失败。
+
+重复充值订单会校验玩家、维度和金额；同 `source + orderId` 内容一致会返回重复订单，内容不一致会返回失败，不会静默吞掉差异。`/vipadmin points add|take|set` 和充值金额只接受正整数，避免负数反转操作语义。
 
 ## PlaceholderAPI 缓存
 

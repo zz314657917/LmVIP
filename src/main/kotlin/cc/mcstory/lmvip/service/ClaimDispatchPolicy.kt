@@ -5,8 +5,10 @@ import cc.mcstory.lmvip.model.ClaimDispatchStatus
 object ClaimDispatchPolicy {
     fun blocksPlayerClaim(status: ClaimDispatchStatus): Boolean = when (status) {
         ClaimDispatchStatus.PENDING,
+        ClaimDispatchStatus.RUNNING,
         ClaimDispatchStatus.CLAIMED,
-        ClaimDispatchStatus.FAILED -> true
+        ClaimDispatchStatus.FAILED,
+        ClaimDispatchStatus.MANUAL_REVIEW -> true
     }
 
     fun canRetry(status: ClaimDispatchStatus): Boolean = status == ClaimDispatchStatus.FAILED

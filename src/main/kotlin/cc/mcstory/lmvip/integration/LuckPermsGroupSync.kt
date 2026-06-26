@@ -13,6 +13,7 @@ class LuckPermsGroupSync(
     legacyGroups: List<String> = emptyList(),
     private val apiProvider: (() -> Any?)? = null,
     private val inheritanceNodeFactory: ((String) -> Any)? = null,
+    private val syncOverride: ((UUID, Int) -> Boolean)? = null,
 ) {
     private var groups = emptySet<String>()
     private var levelGroup = emptyMap<Int, String>()
@@ -38,6 +39,7 @@ class LuckPermsGroupSync(
     }
 
     fun sync(playerId: UUID, vipLevel: Int): Boolean {
+        syncOverride?.let { return it(playerId, vipLevel) }
         return try {
             val api = api ?: return false
             val user = loadUser(api, playerId) ?: return false

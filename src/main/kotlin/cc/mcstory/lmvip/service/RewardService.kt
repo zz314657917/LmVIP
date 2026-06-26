@@ -21,6 +21,7 @@ import taboolib.platform.BukkitPlugin
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 data class RewardCommandContext(
     val playerName: String,
@@ -126,12 +127,10 @@ class RewardService(
             is ClaimWriteResult.Existing -> return OperationResult(false, statusForClaim(write.claim).reason)
         }
         val context = RewardCommandContext(player.name, player.uniqueId, level.level, seasonId, claim.id, periodKey, claim.dispatchId ?: "")
-        val dispatch = dispatchCommands(context, claim.id, commands)
+        val dispatch = dispatchCommands(context, claim.id, commands, ClaimDispatchStatus.PENDING)
         if (!dispatch.success) {
-            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, dispatch.message)
             return OperationResult(false, dispatch.message)
         }
-        repository.updateClaimStatus(claim.id, ClaimDispatchStatus.CLAIMED)
         LmVipPlaceholderExpansion.refresh(player.uniqueId, player.name)
         return OperationResult(true, raw("reward.claim-success"))
     }
@@ -157,12 +156,10 @@ class RewardService(
             is ClaimWriteResult.Existing -> return OperationResult(false, statusForClaim(write.claim).reason)
         }
         val context = RewardCommandContext(player.name, player.uniqueId, level.level, snapshot.seasonId ?: ONCE_SEASON_ID, claim.id, ONCE_PERIOD_KEY, claim.dispatchId ?: "")
-        val dispatch = dispatchCommands(context, claim.id, level.once.commands)
+        val dispatch = dispatchCommands(context, claim.id, level.once.commands, ClaimDispatchStatus.PENDING)
         if (!dispatch.success) {
-            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, dispatch.message)
             return OperationResult(false, dispatch.message)
         }
-        repository.updateClaimStatus(claim.id, ClaimDispatchStatus.CLAIMED)
         LmVipPlaceholderExpansion.refresh(player.uniqueId, player.name)
         return OperationResult(true, raw("reward.once-claim-success", "level" to level.level, "level_name" to level.plainName))
     }
@@ -174,14 +171,11 @@ class RewardService(
         if (!ClaimDispatchPolicy.canRetry(claim.status)) {
             return OperationResult(false, raw("reward.claim-not-retryable"))
         }
-        repository.updateClaimStatus(claim.id, ClaimDispatchStatus.PENDING, null)
         val context = RewardCommandContext(playerName, playerId, target.level.level, target.seasonId, claim.id, target.periodKey, claim.dispatchId ?: "")
-        val dispatch = dispatchCommands(context, claim.id, target.commands)
+        val dispatch = dispatchCommands(context, claim.id, target.commands, ClaimDispatchStatus.FAILED)
         if (!dispatch.success) {
-            repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, dispatch.message)
             return OperationResult(false, dispatch.message)
         }
-        repository.updateClaimStatus(claim.id, ClaimDispatchStatus.CLAIMED)
         LmVipPlaceholderExpansion.refresh(playerId, playerName)
         return OperationResult(true, raw("reward.retry-success"))
     }
@@ -193,7 +187,14 @@ class RewardService(
         if (!ClaimDispatchPolicy.canReset(claim.status)) {
             return OperationResult(false, raw("reward.claim-not-resettable"))
         }
-        repository.deleteClaim(playerId, target.seasonId, type.dbKey, target.level.level, target.periodKey)
+        val commands = repository.listClaimCommands(claim.id)
+        if (commands.any { it.status == ClaimCommandStatus.SUCCEEDED }) {
+            return OperationResult(false, raw("reward.reset-has-succeeded"))
+        }
+        val reset = repository.markClaimManualReview(claim.id, raw("reward.reset-manual-review"))
+        if (!reset) {
+            return OperationResult(false, raw("reward.claim-not-resettable"))
+        }
         LmVipPlaceholderExpansion.refresh(playerId, playerName)
         return OperationResult(true, raw("reward.reset-success"))
     }
@@ -220,41 +221,45 @@ class RewardService(
         return when (claim.status) {
             ClaimDispatchStatus.CLAIMED -> ClaimStatus(false, true, raw("reward.status.claimed"))
             ClaimDispatchStatus.PENDING -> ClaimStatus(false, false, raw("reward.status.pending"))
+            ClaimDispatchStatus.RUNNING -> ClaimStatus(false, false, raw("reward.status.pending"))
             ClaimDispatchStatus.FAILED -> ClaimStatus(false, false, raw("reward.status.failed", "error" to (claim.failureReason ?: "-")))
+            ClaimDispatchStatus.MANUAL_REVIEW -> ClaimStatus(false, false, raw("reward.status.failed", "error" to (claim.failureReason ?: "-")))
         }
     }
 
-    private fun dispatchCommands(context: RewardCommandContext, claimId: Long, commands: List<String>): CommandDispatchOutcome {
-        if (commands.isEmpty()) return CommandDispatchOutcome(true, raw("reward.claim-success"))
-        val task = {
-            runCatching { runRewardCommands(context, claimId, commands) }.getOrElse {
-                warn("Reward command dispatch failed for ${context.playerName}: ${it.message}")
-                CommandDispatchOutcome(false, raw("reward.dispatch-failed"))
+    private fun dispatchCommands(
+        context: RewardCommandContext,
+        claimId: Long,
+        commands: List<String>,
+        expectedStatus: ClaimDispatchStatus,
+    ): CommandDispatchOutcome {
+        if (commands.isEmpty()) {
+            return if (finishClaim(claimId, context, expectedStatus, ClaimDispatchStatus.CLAIMED, null)) {
+                CommandDispatchOutcome(true, raw("reward.claim-success"))
+            } else {
+                CommandDispatchOutcome(false, raw("reward.dispatch-claimed-by-other"))
             }
         }
-        serverThreadDispatcher?.let { return it(config.rewardCommandTimeoutSeconds, task) }
-        return if (Bukkit.isPrimaryThread()) {
-            task()
-        } else {
-            val future = CompletableFuture<CommandDispatchOutcome>()
-            runCatching {
-                Bukkit.getScheduler().runTask(BukkitPlugin.getInstance(), Runnable {
-                    if (future.isCancelled) {
-                        return@Runnable
-                    }
-                    future.complete(task())
-                })
-                future.get(config.rewardCommandTimeoutSeconds, TimeUnit.SECONDS)
-            }.getOrElse {
-                warn("Reward command dispatch failed or timed out for ${context.playerName}: ${it.message}")
-                future.cancel(false)
-                timeoutOutcome(claimId)
-            }
+        val workerId = "lmvip-${context.playerId}-${claimId}-${System.nanoTime()}"
+        val leaseUntil = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(config.rewardCommandTimeoutSeconds.coerceAtLeast(1).toLong())
+        if (!repository.tryMarkClaimRunning(claimId, expectedStatus, workerId, leaseUntil)) {
+            return CommandDispatchOutcome(false, raw("reward.dispatch-claimed-by-other"))
         }
+        val dispatch = runCatching { runRewardCommands(context, claimId, commands) }.getOrElse {
+            warn("Reward command dispatch failed for ${context.playerName}: ${it.message}")
+            CommandDispatchOutcome(false, raw("reward.dispatch-failed"))
+        }
+        val completeStatus = if (dispatch.success) ClaimDispatchStatus.CLAIMED else ClaimDispatchStatus.FAILED
+        val completeReason = if (dispatch.success) null else dispatch.message
+        if (!repository.completeRunningClaim(claimId, workerId, completeStatus, completeReason)) {
+            warn("Reward claim completion lost CAS for ${context.playerName}: claim $claimId worker $workerId")
+            return CommandDispatchOutcome(false, raw("reward.dispatch-claimed-by-other"))
+        }
+        return dispatch
     }
 
     private fun runRewardCommands(context: RewardCommandContext, claimId: Long, commands: List<String>): CommandDispatchOutcome {
-        if (!isClaimPending(claimId)) {
+        if (!isClaimRunning(claimId)) {
             warn("Skipped reward command dispatch for ${context.playerName}: claim $claimId is no longer pending")
             return CommandDispatchOutcome(false, raw("reward.dispatch-timeout"))
         }
@@ -263,17 +268,20 @@ class RewardService(
         if (!validation.success) return validation
         for (record in records.sortedBy { it.commandIndex }) {
             if (record.status == ClaimCommandStatus.SUCCEEDED) continue
-            if (!isClaimPending(claimId)) {
+            if (!isClaimRunning(claimId)) {
                 warn("Stopped reward command dispatch for ${context.playerName}: claim $claimId is no longer pending")
                 return CommandDispatchOutcome(false, raw("reward.dispatch-timeout"))
             }
             val command = commands.getOrNull(record.commandIndex)
                 ?: return CommandDispatchOutcome(false, raw("reward.retry-command-changed"))
-            val parsed = context.render(command)
-            if (commandExecutor.execute(context, command)) {
+            if (!repository.tryMarkClaimCommandRunning(claimId, record.commandIndex)) {
+                return CommandDispatchOutcome(false, raw("reward.dispatch-claimed-by-other"))
+            }
+            val executed = executeCommandOnServerThread(context, command)
+            if (executed) {
                 repository.updateClaimCommandStatus(claimId, record.commandIndex, ClaimCommandStatus.SUCCEEDED, command)
             } else {
-                warn("Reward command returned false for ${context.playerName}: $parsed")
+                warn("Reward command returned false for ${context.playerName}: ${context.render(command)}")
                 repository.updateClaimCommandStatus(claimId, record.commandIndex, ClaimCommandStatus.FAILED, command, raw("reward.dispatch-failed"))
                 return CommandDispatchOutcome(false, raw("reward.dispatch-failed-rollback"))
             }
@@ -281,14 +289,46 @@ class RewardService(
         return CommandDispatchOutcome(true, raw("reward.claim-success"))
     }
 
-    private fun timeoutOutcome(claimId: Long): CommandDispatchOutcome {
-        val message = raw("reward.dispatch-timeout")
-        repository.updateClaimStatus(claimId, ClaimDispatchStatus.FAILED, message)
-        return CommandDispatchOutcome(false, message)
+    private fun executeCommandOnServerThread(context: RewardCommandContext, command: String): Boolean {
+        val task = { commandExecutor.execute(context, command) }
+        serverThreadDispatcher?.let { dispatcher ->
+            return dispatcher(config.rewardCommandTimeoutSeconds) {
+                CommandDispatchOutcome(task(), raw("reward.claim-success"))
+            }.success
+        }
+        if (Bukkit.isPrimaryThread()) {
+            return task()
+        }
+        val future = CompletableFuture<Boolean>()
+        return runCatching {
+            Bukkit.getScheduler().runTask(BukkitPlugin.getInstance(), Runnable {
+                if (!future.isCancelled) {
+                    future.complete(task())
+                }
+            })
+            future.get(config.rewardCommandTimeoutSeconds, TimeUnit.SECONDS)
+        }.getOrElse {
+            warn("Reward command dispatch failed or timed out for ${context.playerName}: ${it.message}")
+            future.cancel(false)
+            if (it is TimeoutException) false else throw it
+        }
     }
 
-    private fun isClaimPending(claimId: Long): Boolean {
-        return repository.claimStatus(claimId) == ClaimDispatchStatus.PENDING
+    private fun finishClaim(
+        claimId: Long,
+        context: RewardCommandContext,
+        expectedStatus: ClaimDispatchStatus,
+        completeStatus: ClaimDispatchStatus,
+        reason: String?,
+    ): Boolean {
+        val workerId = "lmvip-${context.playerId}-${claimId}-${System.nanoTime()}"
+        val leaseUntil = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(config.rewardCommandTimeoutSeconds.coerceAtLeast(1).toLong())
+        return repository.tryMarkClaimRunning(claimId, expectedStatus, workerId, leaseUntil) &&
+            repository.completeRunningClaim(claimId, workerId, completeStatus, reason)
+    }
+
+    private fun isClaimRunning(claimId: Long): Boolean {
+        return repository.claimStatus(claimId) == ClaimDispatchStatus.RUNNING
     }
 
     private fun validateClaimCommands(records: List<ClaimCommandRecord>, commands: List<String>): CommandDispatchOutcome {

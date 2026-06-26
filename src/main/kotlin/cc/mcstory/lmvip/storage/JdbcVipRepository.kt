@@ -116,6 +116,9 @@ class JdbcVipRepository(
                 ensureColumn(connection, "lmvip_claims", "dispatch_id", "ALTER TABLE lmvip_claims ADD COLUMN dispatch_id VARCHAR(128) NULL")
                 ensureColumn(connection, "lmvip_claims", "failure_reason", "ALTER TABLE lmvip_claims ADD COLUMN failure_reason VARCHAR(255) NULL")
                 ensureColumn(connection, "lmvip_claims", "updated_at", "ALTER TABLE lmvip_claims ADD COLUMN updated_at BIGINT NOT NULL DEFAULT 0")
+                ensureColumn(connection, "lmvip_claims", "worker_id", "ALTER TABLE lmvip_claims ADD COLUMN worker_id VARCHAR(128) NULL")
+                ensureColumn(connection, "lmvip_claims", "lease_until", "ALTER TABLE lmvip_claims ADD COLUMN lease_until BIGINT NULL")
+                ensureColumn(connection, "lmvip_claims", "version", "ALTER TABLE lmvip_claims ADD COLUMN version BIGINT NOT NULL DEFAULT 0")
                 statement.executeUpdate("UPDATE lmvip_claims SET updated_at=claimed_at WHERE updated_at=0")
                 statement.executeUpdate(
                     """
@@ -133,6 +136,7 @@ class JdbcVipRepository(
                     )
                     """.trimIndent()
                 )
+                recoverExpiredRunningClaims(connection, periods.nowMillis())
                 statement.executeUpdate(
                     """
                     CREATE TABLE IF NOT EXISTS lmvip_admin_audit (
@@ -427,7 +431,21 @@ class JdbcVipRepository(
                         insertClaimCommands(connection, id, commands)
                         connection.commit()
                         return ClaimWriteResult.Inserted(
-                            ClaimRecord(id, playerId, playerName, seasonId, claimType, level, periodKey, ClaimDispatchStatus.PENDING, dispatchId, null)
+                            ClaimRecord(
+                                id = id,
+                                playerId = playerId,
+                                playerName = playerName,
+                                seasonId = seasonId,
+                                claimType = claimType,
+                                level = level,
+                                periodKey = periodKey,
+                                status = ClaimDispatchStatus.PENDING,
+                                dispatchId = dispatchId,
+                                failureReason = null,
+                                workerId = null,
+                                leaseUntil = null,
+                                version = 0L,
+                            )
                         )
                     }
                 }
@@ -444,12 +462,76 @@ class JdbcVipRepository(
 
     fun updateClaimStatus(claimId: Long, status: ClaimDispatchStatus, failureReason: String? = null): Boolean {
         database.getConnection().use { connection ->
-            connection.prepareStatement("UPDATE lmvip_claims SET status=?, failure_reason=?, updated_at=? WHERE id=?").use {
+            connection.prepareStatement(
+                """
+                UPDATE lmvip_claims
+                SET status=?,
+                    failure_reason=?,
+                    worker_id=NULL,
+                    lease_until=NULL,
+                    version=version+1,
+                    updated_at=?
+                WHERE id=?
+                """.trimIndent()
+            ).use {
                 it.setString(1, status.dbKey)
                 it.setString(2, failureReason?.take(255))
                 it.setLong(3, periods.nowMillis())
                 it.setLong(4, claimId)
                 return it.executeUpdate() > 0
+            }
+        }
+    }
+
+    fun tryMarkClaimRunning(claimId: Long, expectedStatus: ClaimDispatchStatus, workerId: String, leaseUntil: Long): Boolean {
+        database.getConnection().use { connection ->
+            connection.prepareStatement(
+                """
+                UPDATE lmvip_claims
+                SET status=?,
+                    failure_reason=NULL,
+                    worker_id=?,
+                    lease_until=?,
+                    version=version+1,
+                    updated_at=?
+                WHERE id=? AND status=?
+                """.trimIndent()
+            ).use {
+                it.setString(1, ClaimDispatchStatus.RUNNING.dbKey)
+                it.setString(2, workerId.take(128))
+                it.setLong(3, leaseUntil)
+                it.setLong(4, periods.nowMillis())
+                it.setLong(5, claimId)
+                it.setString(6, expectedStatus.dbKey)
+                return it.executeUpdate() == 1
+            }
+        }
+    }
+
+    fun completeRunningClaim(claimId: Long, workerId: String, status: ClaimDispatchStatus, failureReason: String? = null): Boolean {
+        require(status == ClaimDispatchStatus.CLAIMED || status == ClaimDispatchStatus.FAILED) {
+            "Running claims can only complete as CLAIMED or FAILED"
+        }
+        database.getConnection().use { connection ->
+            connection.prepareStatement(
+                """
+                UPDATE lmvip_claims
+                SET status=?,
+                    failure_reason=?,
+                    worker_id=NULL,
+                    lease_until=NULL,
+                    version=version+1,
+                    updated_at=?
+                WHERE id=? AND status=? AND worker_id=?
+                """.trimIndent()
+            ).use {
+                it.setString(1, status.dbKey)
+                it.setString(2, failureReason?.take(255))
+                it.setLong(3, periods.nowMillis())
+                it.setLong(4, claimId)
+                it.setString(5, ClaimDispatchStatus.RUNNING.dbKey)
+                it.setString(6, workerId.take(128))
+                return it.executeUpdate() == 1
             }
         }
     }
@@ -512,6 +594,53 @@ class JdbcVipRepository(
                 it.setLong(6, claimId)
                 it.setInt(7, commandIndex)
                 return it.executeUpdate() > 0
+            }
+        }
+    }
+
+    fun tryMarkClaimCommandRunning(claimId: Long, commandIndex: Int): Boolean {
+        database.getConnection().use { connection ->
+            connection.prepareStatement(
+                """
+                UPDATE lmvip_claim_commands
+                SET status=?,
+                    failure_reason=NULL,
+                    updated_at=?
+                WHERE claim_id=? AND command_index=? AND status IN (?, ?)
+                """.trimIndent()
+            ).use {
+                it.setString(1, ClaimCommandStatus.RUNNING.dbKey)
+                it.setLong(2, periods.nowMillis())
+                it.setLong(3, claimId)
+                it.setInt(4, commandIndex)
+                it.setString(5, ClaimCommandStatus.PENDING.dbKey)
+                it.setString(6, ClaimCommandStatus.FAILED.dbKey)
+                return it.executeUpdate() == 1
+            }
+        }
+    }
+
+    fun markClaimManualReview(claimId: Long, reason: String): Boolean {
+        database.getConnection().use { connection ->
+            connection.prepareStatement(
+                """
+                UPDATE lmvip_claims
+                SET status=?,
+                    failure_reason=?,
+                    worker_id=NULL,
+                    lease_until=NULL,
+                    version=version+1,
+                    updated_at=?
+                WHERE id=? AND status IN (?, ?)
+                """.trimIndent()
+            ).use {
+                it.setString(1, ClaimDispatchStatus.MANUAL_REVIEW.dbKey)
+                it.setString(2, reason.take(255))
+                it.setLong(3, periods.nowMillis())
+                it.setLong(4, claimId)
+                it.setString(5, ClaimDispatchStatus.FAILED.dbKey)
+                it.setString(6, ClaimDispatchStatus.PENDING.dbKey)
+                return it.executeUpdate() == 1
             }
         }
     }
@@ -583,6 +712,58 @@ class JdbcVipRepository(
         }
     }
 
+    private fun recoverExpiredRunningClaims(connection: Connection, now: Long) {
+        val expiredClaimIds = mutableListOf<Long>()
+        connection.prepareStatement(
+            "SELECT id FROM lmvip_claims WHERE status=? AND lease_until IS NOT NULL AND lease_until<?"
+        ).use {
+            it.setString(1, ClaimDispatchStatus.RUNNING.dbKey)
+            it.setLong(2, now)
+            it.executeQuery().use { rs ->
+                while (rs.next()) {
+                    expiredClaimIds += rs.getLong("id")
+                }
+            }
+        }
+        for (claimId in expiredClaimIds) {
+            connection.prepareStatement(
+                """
+                UPDATE lmvip_claim_commands
+                SET status=?,
+                    failure_reason=?,
+                    updated_at=?
+                WHERE claim_id=? AND status=?
+                """.trimIndent()
+            ).use {
+                it.setString(1, ClaimCommandStatus.FAILED.dbKey)
+                it.setString(2, "expired running claim")
+                it.setLong(3, now)
+                it.setLong(4, claimId)
+                it.setString(5, ClaimCommandStatus.RUNNING.dbKey)
+                it.executeUpdate()
+            }
+            connection.prepareStatement(
+                """
+                UPDATE lmvip_claims
+                SET status=?,
+                    failure_reason=?,
+                    worker_id=NULL,
+                    lease_until=NULL,
+                    version=version+1,
+                    updated_at=?
+                WHERE id=? AND status=?
+                """.trimIndent()
+            ).use {
+                it.setString(1, ClaimDispatchStatus.FAILED.dbKey)
+                it.setString(2, "expired running claim")
+                it.setLong(3, now)
+                it.setLong(4, claimId)
+                it.setString(5, ClaimDispatchStatus.RUNNING.dbKey)
+                it.executeUpdate()
+            }
+        }
+    }
+
     private fun ensureColumn(connection: Connection, table: String, column: String, ddl: String) {
         val metadata = connection.metaData
         metadata.getColumns(connection.catalog, null, table, null).use { columns ->
@@ -622,8 +803,8 @@ class JdbcVipRepository(
         rolledBackId: Long? = null,
     ): TransactionWriteResult {
         if (amount == 0L) return TransactionWriteResult.NoChange
-        if (!source.isNullOrBlank() && !orderId.isNullOrBlank() && existingSourceOrder(source, orderId)) {
-            return TransactionWriteResult.DuplicateOrder(source, orderId)
+        if (!source.isNullOrBlank() && !orderId.isNullOrBlank()) {
+            duplicateSourceOrderResult(source, orderId, playerId, dimension, amount)?.let { return it }
         }
         database.getConnection().use { connection ->
             connection.prepareStatement(
@@ -657,7 +838,8 @@ class JdbcVipRepository(
                     }
                 } catch (_: SQLIntegrityConstraintViolationException) {
                     if (!source.isNullOrBlank() && !orderId.isNullOrBlank()) {
-                        TransactionWriteResult.DuplicateOrder(source, orderId)
+                        duplicateSourceOrderResult(source, orderId, playerId, dimension, amount)
+                            ?: TransactionWriteResult.DuplicateMismatch(source, orderId)
                     } else {
                         throw SQLException("Transaction unique constraint violation")
                     }
@@ -671,12 +853,30 @@ class JdbcVipRepository(
         }
     }
 
-    private fun existingSourceOrder(source: String, orderId: String): Boolean {
+    private fun duplicateSourceOrderResult(
+        source: String,
+        orderId: String,
+        playerId: UUID,
+        dimension: String,
+        amount: Long,
+    ): TransactionWriteResult? {
         database.getConnection().use { connection ->
-            connection.prepareStatement("SELECT id FROM lmvip_transactions WHERE source=? AND order_id=? LIMIT 1").use {
+            connection.prepareStatement(
+                "SELECT player_uuid, dimension, amount FROM lmvip_transactions WHERE source=? AND order_id=? LIMIT 1"
+            ).use {
                 it.setString(1, source)
                 it.setString(2, orderId)
-                it.executeQuery().use { rs -> return rs.next() }
+                it.executeQuery().use { rs ->
+                    if (!rs.next()) return null
+                    val sameContent = rs.getString("player_uuid").equals(playerId.toString(), true) &&
+                        rs.getString("dimension").equals(dimension, true) &&
+                        rs.getLong("amount") == amount
+                    return if (sameContent) {
+                        TransactionWriteResult.DuplicateOrder(source, orderId)
+                    } else {
+                        TransactionWriteResult.DuplicateMismatch(source, orderId)
+                    }
+                }
             }
         }
     }
@@ -758,6 +958,9 @@ class JdbcVipRepository(
             status = ClaimDispatchStatus.parse(runCatching { rs.getString("status") }.getOrNull()),
             dispatchId = runCatching { rs.getString("dispatch_id") }.getOrNull(),
             failureReason = runCatching { rs.getString("failure_reason") }.getOrNull(),
+            workerId = runCatching { rs.getString("worker_id") }.getOrNull(),
+            leaseUntil = runCatching { rs.getLong("lease_until").let { value -> if (rs.wasNull()) null else value } }.getOrNull(),
+            version = runCatching { rs.getLong("version") }.getOrDefault(0L),
         )
     }
 

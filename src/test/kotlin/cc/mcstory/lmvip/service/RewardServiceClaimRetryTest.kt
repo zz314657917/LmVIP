@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
 class RewardServiceClaimRetryTest {
 
     @Test
-    fun `dispatch skips commands when claim is no longer pending before server thread execution`() {
+    fun `dispatch fails completion when claim is changed during server thread execution`() {
         val repository = repository()
         val playerId = UUID.fromString("00000000-0000-0000-0000-000000000034")
         val executed = mutableListOf<String>()
@@ -64,9 +64,9 @@ class RewardServiceClaimRetryTest {
         val result = service.retryClaim(playerId, "tester", snapshot(playerId), ClaimType.DAILY)
 
         assertFalse(result.success)
-        assertEquals(emptyList(), executed)
+        assertEquals(listOf("say first"), executed)
         assertEquals(ClaimDispatchStatus.FAILED, repository.findClaim(playerId, "season-1", ClaimType.DAILY.dbKey, 1, service.periodKey(ClaimType.DAILY))?.status)
-        assertEquals(ClaimCommandStatus.PENDING, repository.listClaimCommands(claim.id).single().status)
+        assertEquals(ClaimCommandStatus.SUCCEEDED, repository.listClaimCommands(claim.id).single().status)
     }
 
     @Test
@@ -176,6 +176,33 @@ class RewardServiceClaimRetryTest {
         assertEquals(ClaimCommandStatus.SUCCEEDED, commands[0].status)
         assertEquals(ClaimCommandStatus.FAILED, commands[1].status)
         assertEquals(ClaimCommandStatus.PENDING, commands[2].status)
+    }
+
+    @Test
+    fun `reset refuses claim with succeeded command state`() {
+        val repository = repository()
+        val service = RewardService(
+            config = config(listOf("say first", "say second")),
+            repository = repository,
+            commandExecutor = object : RewardCommandExecutor {
+                override fun execute(context: RewardCommandContext, commandTemplate: String): Boolean = true
+            },
+            serverThreadDispatcher = { _, task -> task() }
+        )
+        val playerId = UUID.fromString("00000000-0000-0000-0000-000000000035")
+        val periodKey = service.periodKey(ClaimType.DAILY)
+        val claim = assertIs<ClaimWriteResult.Inserted>(
+            repository.beginClaim(playerId, "tester", "season-1", ClaimType.DAILY.dbKey, 1, periodKey, listOf("say first", "say second"))
+        ).claim
+        repository.updateClaimCommandStatus(claim.id, 0, ClaimCommandStatus.SUCCEEDED, "say first")
+        repository.updateClaimCommandStatus(claim.id, 1, ClaimCommandStatus.FAILED, "say second", "failed")
+        repository.updateClaimStatus(claim.id, ClaimDispatchStatus.FAILED, "failed")
+
+        val result = service.resetClaim(playerId, "tester", snapshot(playerId), ClaimType.DAILY)
+
+        assertFalse(result.success)
+        assertEquals(ClaimDispatchStatus.FAILED, repository.findClaim(playerId, "season-1", ClaimType.DAILY.dbKey, 1, periodKey)?.status)
+        assertEquals(2, repository.listClaimCommands(claim.id).size)
     }
 
     private fun repository(): JdbcVipRepository {

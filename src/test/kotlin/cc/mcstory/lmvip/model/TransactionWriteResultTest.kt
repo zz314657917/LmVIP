@@ -23,6 +23,14 @@ class TransactionWriteResultTest {
     }
 
     @Test
+    fun `duplicate mismatch result has explicit admin message`() {
+        val result = TransactionWriteResult.DuplicateMismatch("codex", "order-1")
+
+        assertNull(result.transactionIdOrNull())
+        assertEquals("充值流水: 重复订单内容不一致 codex/order-1", result.adminMessage("充值流水"))
+    }
+
+    @Test
     fun `no change result has explicit admin message`() {
         val result = TransactionWriteResult.NoChange
 

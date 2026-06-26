@@ -1,5 +1,18 @@
 # LmVIP 时间轴
 
+## 2026-06-26 +08:00 - 静态审计 P0/P1 修复
+
+- 当前阶段：针对 paste 静态审计报告收口奖励发放、订单幂等、管理输入和 LuckPerms 同步失败可见化。
+- 本段重点：claim 执行权 CAS、`running/manual_review` 状态、reset 保留成功命令证据、奖励命令主线程边界收紧、重复订单内容校验。
+- 已完成：`lmvip_claims` 兼容加列 `worker_id/lease_until/version`；`retry` 通过数据库原子转换抢占执行权；命令级状态支持 `running`，每条 Bukkit 命令只在主线程执行命令本身，DB 查询和状态写回留在异步路径。
+- 已完成：`claims reset` 不再删除领取记录；已有成功命令时拒绝 reset，无成功命令时转 `manual_review` 并保留 `lmvip_claim_commands` 证据。
+- 已完成：重复 `source + orderId` 会校验玩家、维度和金额，内容不一致返回 `DuplicateMismatch`；`/vipadmin points add|take|set` 和充值金额只接受正整数；LuckPerms 同步失败会显式失败。
+- 关键决策：本轮不做完整余额投影和 LuckPerms outbox worker，避免扩大数据库模型；该项保留为真实高价值充值前的后续增强。
+- 验证记录：目标测试通过，覆盖 RewardService retry/reset、仓库 CAS、重复订单 mismatch、ClaimDispatchPolicy、LuckPerms sync failure 和 TransactionWriteResult。
+- 验证记录：`:lmvip-legacy:test :lmvip-modern:test --stacktrace` 通过；`clean build --stacktrace` 通过；jar 检查确认 legacy class major=52、modern class major=61，modern `api-version: 1.20`，两者均不声明 Folia 支持；`git diff --check` 通过，仅 LF/CRLF 提示。
+- 遗留问题：本轮未新增运行态 smoke；Paper 1.20.1 真实服、Arclight 业务命令链路、余额投影/outbox worker、周期上下文一致性仍是后续增强。
+- 下一步：精确暂存、提交并推送本轮静态审计修复。
+
 ## 2026-06-25 19:15 +08:00 - 1.20.1 双产物构建兼容
 
 - 当前阶段：按计划将 LmVIP 从单一 1.12.2 产物拆为 legacy / modern 双产物，业务逻辑和公开 API 不分叉。

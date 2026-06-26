@@ -29,7 +29,7 @@ class VipServiceThreadGuardTest {
         val service = VipService(
             config = config,
             repository = repository,
-            groupSync = LuckPermsGroupSync(config.levels, apiProvider = { null }),
+            groupSync = LuckPermsGroupSync(config.levels, syncOverride = { _, _ -> true }),
             rewards = RewardService(config, repository),
             primaryThreadCheck = { true }
         )
@@ -39,6 +39,25 @@ class VipServiceThreadGuardTest {
         }
 
         assertTrue(error.message.orEmpty().contains("async", ignoreCase = true))
+    }
+
+    @Test
+    fun `refreshAndSync reports LuckPerms sync failure`() {
+        val config = config()
+        val repository = repository()
+        val service = VipService(
+            config = config,
+            repository = repository,
+            groupSync = LuckPermsGroupSync(config.levels, syncOverride = { _, _ -> false }),
+            rewards = RewardService(config, repository),
+            primaryThreadCheck = { false }
+        )
+
+        val error = assertFailsWith<IllegalStateException> {
+            service.refreshAndSync(player(UUID.fromString("00000000-0000-0000-0000-000000000052")))
+        }
+
+        assertTrue(error.message.orEmpty().contains("LuckPerms sync failed"))
     }
 
     private fun repository(): JdbcVipRepository {

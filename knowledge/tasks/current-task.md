@@ -6,7 +6,7 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 
 ## 当前状态
 
-状态：生产前 P2/P3 风险修复、LmCore-v2 `ExecutionService` 玩家可见反馈接入、review finding 收口、知识归档、提交前验证和运行态反馈 smoke 已完成；当前已进入 1.20.1 双产物兼容阶段，Gradle 双模块构建、jar 元数据验证和 Arclight 1.20.1 基础启动/relay smoke 已通过。Paper 1.20.1 smoke 与 Arclight 业务命令链路仍待覆盖。
+状态：生产前 P2/P3 风险修复、LmCore-v2 `ExecutionService` 玩家可见反馈接入、review finding 收口、知识归档、提交前验证和运行态反馈 smoke 已完成；1.20.1 双产物兼容已落地并推送。当前静态审计 P0/P1 已完成代码级修复和构建验证，覆盖 claim CAS、reset 保留证据、奖励命令主线程边界、重复订单内容校验、管理金额校验和 LuckPerms 同步失败可见化。
 
 2026-04-29 追加：已完成 LmCore-v2 `ExecutionService` 玩家可见反馈的代码级接入与构建验证。反馈只在充值入账、VIP 等级变化、奖励领取成功、手动权益刷新成功后触发；失败、重复、GUI 展示、PAPI 和状态预览路径不调用 `execute(...)`。本轮未跑 test-cell 真实反馈 smoke。
 
@@ -30,6 +30,7 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 - 自检修复：恢复 `config.yml` 中被注释吞掉的 YAML key，确保 `reward.command-timeout-seconds` 和 `execution-feedback` 默认配置真实生效。
 - Review finding 修复：奖励发放 timeout/迟到任务增加 claim 状态门闸，`BukkitTasks.async` 调度拒绝时不再静默丢 callback，`refreshAndSync` 明确只能异步调用。
 - 双产物兼容：新增 `RuntimeCompatibilityStatus` / `PlatformCompatibility` 启动诊断，启动日志会输出 artifact、runtimeJava、server、deps 和 verdict；新增 P/G/E workflow 文档记录本轮兼容任务。
+- 静态审计修复：claim 增加 `running/manual_review`、`worker_id/lease_until/version`；retry/reset 改为数据库原子状态转换；reset 不再删除已成功命令证据；奖励命令 DB 读写移出 Bukkit 主线程；重复订单内容不一致会显式失败；管理金额只接受正整数；LuckPerms 同步失败会让操作显式失败。
 
 ## 验证记录
 
@@ -57,6 +58,11 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 - 2026-06-25 双产物兼容：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace`：通过。
 - 2026-06-25 双产物兼容：jar 检查通过，`LmVIP-1.12.2.jar` 的 `LmVipPlugin.class` major=52，`LmVIP-1.20.1.jar` 的 `LmVipPlugin.class` major=61；modern `plugin.yml` 含 `api-version: 1.20`，legacy 不含。
 - 2026-06-25 1.20.1 runtime：BlackBoxPro `cell-06` Arclight/Forge 1.20.1 基础 smoke 通过，日志显示 `LmCore database(default): available`、`LmVIP enabled with LmCore database profile 'LmVIP'`，compatibility 为 `artifact=1.20.1/java17, runtimeJava=17.0.18, server=ARCLIGHT/1.20.1-R0.1-SNAPSHOT, deps=LmCore:ENABLED LuckPerms:ENABLED PAPI:ENABLED, verdict=DEGRADED`。
+- 2026-06-26 静态审计修复目标测试：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP :lmvip-legacy:test --tests cc.mcstory.lmvip.service.RewardServiceClaimRetryTest --tests cc.mcstory.lmvip.storage.JdbcVipRepositoryClaimCommandTest --tests cc.mcstory.lmvip.storage.JdbcVipRepositoryTransactionTest --tests cc.mcstory.lmvip.service.ClaimDispatchPolicyTest --tests cc.mcstory.lmvip.service.VipServiceThreadGuardTest --tests cc.mcstory.lmvip.model.TransactionWriteResultTest --stacktrace`：通过。
+- 2026-06-26 静态审计修复全量验证：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP :lmvip-legacy:test :lmvip-modern:test --stacktrace`：通过。
+- 2026-06-26 静态审计修复全量验证：`F:/mcplugins/LmBattlePass/gradlew.bat -p F:/mcplugins/LmVIP clean build --stacktrace`：通过；仅有既有 Bukkit/Paper deprecation warning。
+- 2026-06-26 静态审计修复全量验证：jar 检查通过，legacy `LmVipPlugin.class` major=52，modern `LmVipPlugin.class` major=61；modern `plugin.yml` 含 `api-version: 1.20`，legacy 不含；两者均不声明 `folia-supported`。
+- 2026-06-26 静态审计修复全量验证：`git diff --check` 通过，仅有 Git LF/CRLF 提示。
 
 ## 已确认事实
 
@@ -71,3 +77,4 @@ LmVIP 是基于 TabooLib 6 的周目 VIP 插件，强依赖 LmCore 与 LuckPerms
 - 正式服运营奖励命令建议使用单一奖励入口，并消费 `%claim_id%` 或 `%dispatch_id%` 做幂等；LmVIP 不尝试回滚外部插件已发出的物品或货币。
 - Paper 1.20.1 真实服务器 smoke 尚未执行。
 - Arclight 1.20.1 已完成基础启动/relay smoke，但业务命令链路因 test-cell OP/权限设置未覆盖；不能表述为完整业务 PASS。
+- 余额投影和 LuckPerms outbox worker 尚未做完整工程化；当前修复是先让失败显式化和减少重复发奖/主线程 DB 风险。
